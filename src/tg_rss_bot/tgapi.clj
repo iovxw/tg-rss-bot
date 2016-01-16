@@ -29,8 +29,13 @@
 
 (defn new-bot [bot-key]
   (let [api (str "https://api.telegram.org/bot" bot-key)
-        result (request (str api "/getMe"))]
-   (assoc result :api api)))
+        result (request (str api "/getMe"))
+        cmd-reg (re-pattern
+                  (str "^\\/(\\w+)(?:@" (result :username) ")?(?: +(.+)?)?$"))]
+   (assoc result :api api :cmd-reg cmd-reg)))
+
+(defn parse-cmd [bot text]
+  (vec (rest (re-find (bot :cmd-reg) text))))
 
 (defn get-updates
   ([bot] (get-updates bot 0))
@@ -42,11 +47,22 @@
     (assoc m k v)
     m))
 
-(defn answer-inline-query [bot inline_query_id results &
-                          {:keys [cache_time is_personal next_offset]}]
+(defn send-message [bot chat-id text &
+                    {:keys [parse-mode disable-web-page-preview
+                            reply-to-message-id reply-markup]}]
+  (req bot "sendMessage"
+       (->> {"chat_id" chat-id
+             "text" text}
+            (if-not-nil-add "parse_mode" parse-mode)
+            (if-not-nil-add "disable_web_page_preview" disable-web-page-preview)
+            (if-not-nil-add "reply_to_message_id" reply-to-message-id)
+            (if-not-nil-add "reply_markup" reply-markup))))
+
+(defn answer-inline-query [bot inline-query-id results &
+                          {:keys [cache-time is-personal next-offset]}]
   (req bot "answerInlineQuery"
-       (->> {"inline_query_id" inline_query_id
+       (->> {"inline_query_id" inline-query-id
              "results" results}
-            (if-not-nil-add "cache_time" cache_time)
-            (if-not-nil-add "is_personal" is_personal)
-            (if-not-nil-add "next_offset" next_offset))))
+            (if-not-nil-add "cache_time" cache-time)
+            (if-not-nil-add "is_personal" is-personal)
+            (if-not-nil-add "next_offset" next-offset))))
