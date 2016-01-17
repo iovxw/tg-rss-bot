@@ -78,7 +78,10 @@
                                    WHERE rss = ? AND subscriber = ?"
                                   url subscriber])]
     (if (>= (first result) 1)
-      (tgapi/send-message bot subscriber "退订成功")
+      (do (tgapi/send-message bot subscriber "退订成功")
+          (when-not (has-row db "subscribers" "rss = ?" url)
+            ; 最后一个订阅者退订，删除这个 RSS
+            (jdbc/delete! db :rss ["url = ?" url])))
       (tgapi/send-message bot subscriber "退订失败，没有订阅过的 RSS"))))
 
 (defn handle-message [bot db]
