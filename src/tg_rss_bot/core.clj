@@ -64,7 +64,7 @@
         (tgapi/send-message bot subscriber
                             (format "《%s》订阅成功" title))
         ; 检查是否为第一次订阅
-        (when (has-row db "rss" "url = ?" url)
+        (when-not (has-row db "rss" "url = ?" url)
           (jdbc/insert! db :rss {:url url :title title
                                  :hash_list (gen-hash-list rss)})))
       (tgapi/send-message bot subscriber "订阅失败，已经订阅过的 RSS"))
