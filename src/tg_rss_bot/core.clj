@@ -83,7 +83,7 @@
 
 (defn handle-message [bot db]
   (loop [updates (updates-seq bot)]
-    (println (first updates))
+    (prn (first updates))
     (when-let [message ((first updates) :message)]
       (match (tgapi/parse-cmd bot (message :text))
              ["rss" _] (prn "RSS!")
