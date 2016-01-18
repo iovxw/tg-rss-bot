@@ -40,9 +40,7 @@
        (bytes-hash-to-str)))
 
 (defn gen-hash-list [rss]
-  (->> (.entries rss)
-       (map #(get-hash (.value (.description %))))
-       (string/join " ")))
+  (map #(get-hash (.value (.description %))) (.entries rss)))
 
 (defn has-row [db table query & value]
   (let [query (format "SELECT COUNT(*) FROM %s WHERE %s"
@@ -67,7 +65,7 @@
         ; 检查是否为第一次订阅
         (when-not (has-row db "rss" "url = ?" url)
           (jdbc/insert! db :rss {:url url :title title
-                                 :hash_list (gen-hash-list rss)})))
+                                 :hash_list (string/join " " (gen-hash-list rss))})))
       (tgapi/send-message bot subscriber "订阅失败，已经订阅过的 RSS"))
     (catch Exception e
       (tgapi/send-message bot subscriber "订阅失败，请检查 URL 以及是否包含 RSS")
@@ -120,13 +118,10 @@
                                 WHERE rss = ?" rss])]
     (map #(get % :subscriber) result)))
 
-(defn filter-updates [hash-list entries]
-  (reduce (fn [updates entry]
-            (let [hash (get-hash (.value (.description entry)))]
-              (if-not (some #(= % hash) hash-list)
-                (conj updates entry)
-                updates)))
-          [] entries))
+(defn filter-updates [hash-list new-hash-list entries]
+  (for [[nh entry] (zipmap new-hash-list entries)
+        :when (not (some #(= % nh) hash-list))]
+    entry))
 
 (defn make-rss-update-msg [title updates]
   (reduce #(format "%s\n[%s](%s)" %1 (.title %2) (.link %2))
@@ -138,11 +133,13 @@
       (let [url (row :url)
             hash-list (string/split (row :hash_list) #" ")
             rss (parse-feed url)
+            new-hash-list (gen-hash-list rss)
             title (.title rss)
-            updates (filter-updates hash-list (.entries rss))]
+            updates (filter-updates hash-list new-hash-list (.entries rss))]
         (when (not= (count updates) 0)
           (jdbc/update! db :rss {:title title
-                                 :hash_list (gen-hash-list rss)} ["url = ?" url])
+                                 :hash_list (string/join " " new-hash-list)}
+                        ["url = ?" url])
           (let [message (make-rss-update-msg title updates)]
             (doseq [subscriber (get-subscribers db url)]
               (tgapi/send-message bot subscriber message
