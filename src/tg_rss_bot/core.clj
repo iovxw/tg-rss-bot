@@ -84,20 +84,32 @@
             (jdbc/delete! db :rss ["url = ?" url])))
       (tgapi/send-message bot subscriber "退订失败，没有订阅过的 RSS"))))
 
+(defn get-rss-title [db url]
+  (-> (jdbc/query db ["SELECT title FROM rss WHERE url = ?" url])
+      (first)
+      (get :title)))
+
+(defn get-sub-list [bot db subscriber]
+  (let [result (jdbc/query db ["SELECT rss FROM subscribers
+                                WHERE subscriber = ?" subscriber])]
+    (if-not (= (count result) 0)
+      (let [message (reduce #(format "%s\n[%s](%s)"
+                                     %1 (get-rss-title db (%2 :rss)) (%2 :rss))
+                            "订阅列表:" result)]
+        (tgapi/send-message bot subscriber message :parse-mode "Markdown"))
+      (tgapi/send-message bot subscriber "订阅列表为空"))))
+
 (defn handle-message [bot db]
   (loop [updates (updates-seq bot)]
     (prn (first updates))
     (when-let [message ((first updates) :message)]
-      (match (tgapi/parse-cmd bot (message :text))
-             ["rss" _] (prn "RSS!")
-             ["sub" url] (sub-rss bot db url
-                                  (get-in message [:chat :id]))
-             ["unsub" url] (unsub-rss bot db url
-                                      (get-in message [:chat :id]))
-             [cmd arg] (log/warnf "Unknown command: %s, args: %s"
-                                  cmd arg)
-             :else (log/warnf "Unable to parse command: %s"
-                              (message :text))))
+      (when-let [text (message :text)]
+        (match (tgapi/parse-cmd bot text)
+               ["rss" _] (get-sub-list bot db (get-in message [:chat :id]))
+               ["sub" url] (sub-rss bot db url (get-in message [:chat :id]))
+               ["unsub" url] (unsub-rss bot db url (get-in message [:chat :id]))
+               [cmd arg] (log/warnf "Unknown command: %s, args: %s" cmd arg)
+               :else (log/warnf "Unable to parse command: %s" (message :text)))))
     (recur (rest updates))))
 
 (defn pull-rss-updates [bot db])
