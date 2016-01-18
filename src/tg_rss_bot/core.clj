@@ -3,6 +3,7 @@
             [clojure.tools.logging :as log]
             [clojure.java.jdbc :as jdbc]
             [clojure.string :as string]
+            [clojure.core.async :refer [go]]
             [clojure.core.match :refer [match]]
             [feedparser-clj.core :refer [parse-feed]])
   (:gen-class))
@@ -70,7 +71,6 @@
       (tgapi/send-message bot subscriber "订阅失败，已经订阅过的 RSS"))
     (catch Exception e
       (tgapi/send-message bot subscriber "订阅失败，请检查 URL 以及是否包含 RSS")
-      (prn e)
       (log/warnf "sub-rss: %s, %s" url (.getMessage e)))))
 
 (defn unsub-rss [bot db url subscriber]
@@ -99,23 +99,23 @@
         (tgapi/send-message bot subscriber message :parse-mode "Markdown"))
       (tgapi/send-message bot subscriber "订阅列表为空"))))
 
-(defn handle-message [bot db]
-  (loop [updates (updates-seq bot)]
-    (prn (first updates))
-    (when-let [message ((first updates) :message)]
-      (when-let [text (message :text)]
-        (match (tgapi/parse-cmd bot text)
-               ["rss" _] (get-sub-list bot db (get-in message [:chat :id]))
-               ["sub" url] (sub-rss bot db url (get-in message [:chat :id]))
-               ["unsub" url] (unsub-rss bot db url (get-in message [:chat :id]))
-               [cmd arg] (log/warnf "Unknown command: %s, args: %s" cmd arg)
-               :else (log/warnf "Unable to parse command: %s" (message :text)))))
-    (recur (rest updates))))
+(defn handle-update [bot db update]
+  (prn update)
+  (when-let [message (update :message)]
+    (when-let [text (message :text)]
+      (match (tgapi/parse-cmd bot text)
+             ["rss" _] (get-sub-list bot db (get-in message [:chat :id]))
+             ["sub" url] (sub-rss bot db url (get-in message [:chat :id]))
+             ["unsub" url] (unsub-rss bot db url (get-in message [:chat :id]))
+             [cmd arg] (log/warnf "Unknown command: %s, args: %s" cmd arg)
+             :else (log/warnf "Unable to parse command: %s" (message :text))))))
 
 (defn pull-rss-updates [bot db])
 
 (defn -main [bot-key]
   (init-db db)
   (let [bot (tgapi/new-bot bot-key)]
-    (.start (Thread. (fn [](pull-rss-updates bot db))))
-    (handle-message bot db)))
+    (go (pull-rss-updates bot db))
+    (loop [updates (updates-seq bot)]
+      (go (handle-update bot db (first updates)))
+      (recur (rest updates)))))
