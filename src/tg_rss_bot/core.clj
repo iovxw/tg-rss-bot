@@ -96,7 +96,9 @@
       (let [message (reduce #(format "%s\n[%s](%s)"
                                      %1 (get-rss-title db (%2 :rss)) (%2 :rss))
                             "订阅列表:" result)]
-        (tgapi/send-message bot subscriber message :parse-mode "Markdown"))
+        (tgapi/send-message bot subscriber message
+                            :parse-mode "Markdown"
+                            :disable-web-page-preview true))
       (tgapi/send-message bot subscriber "订阅列表为空"))))
 
 (defn handle-update [bot db update]
@@ -110,7 +112,46 @@
              [cmd arg] (log/warnf "Unknown command: %s, args: %s" cmd arg)
              :else (log/warnf "Unable to parse command: %s" (message :text))))))
 
-(defn pull-rss-updates [bot db])
+(defn get-all-rss [db]
+  (jdbc/query db ["SELECT * FROM rss"]))
+
+(defn get-subscribers [db rss]
+  (let [result (jdbc/query db ["SELECT subscriber FROM subscribers
+                                WHERE rss = ?" rss])]
+    (map #(get % :subscriber) result)))
+
+(defn filter-updates [hash-list entries]
+  (reduce (fn [updates entry]
+            (let [hash (get-hash (.value (.description entry)))]
+              (if-not (some #(= % hash) hash-list)
+                (conj updates entry)
+                updates)))
+          [] entries))
+
+(defn make-rss-update-msg [title updates]
+  (reduce #(format "%s\n[%s](%s)" %1 (.title %2) (.link %2))
+          (format "*%s*" title) updates))
+
+(defn pull-rss-updates [bot db]
+  (doseq [row (get-all-rss db)]
+    (try
+      (let [url (row :url)
+            hash-list (string/split (row :hash_list) #" ")
+            rss (parse-feed url)
+            title (.title rss)
+            updates (filter-updates hash-list (.entries rss))]
+        (when (not= (count updates) 0)
+          (jdbc/update! db :rss {:title title
+                                 :hash_list (gen-hash-list rss)} ["url = ?" url])
+          (let [message (make-rss-update-msg title updates)]
+            (doseq [subscriber (get-subscribers db url)]
+              (tgapi/send-message bot subscriber message
+                                  :parse-mode "Markdown"
+                                  :disable-web-page-preview true)))))
+      (catch Exception e
+        (log/error e (format "Pull RSS updates fail: %s" (row :url))))))
+  (Thread/sleep 300000) ; 5min
+  (recur bot db))
 
 (defn -main [bot-key]
   (init-db db)
