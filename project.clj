@@ -12,8 +12,7 @@
                  [org.clojure/core.async "0.2.374"]
                  [org.clojure/tools.logging "0.3.1"]
                  [org.clojure/core.match "0.3.0-alpha4"]
-                 [org.clojars.freemarmoset/feedparser-clj "0.6.0"]
-                 [org.slf4j/slf4j-simple "1.7.13"]]
+                 [org.clojars.smallrivers/feedparser-clj "0.4"]]
   :main ^:skip-aot tg-rss-bot.core
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}})

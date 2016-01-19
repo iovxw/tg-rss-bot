@@ -40,7 +40,9 @@
        (bytes-hash-to-str)))
 
 (defn gen-hash-list [rss]
-  (map #(get-hash (.value (.description %))) (.entries rss)))
+  (map #(get-hash (str (get (get % :description) :value)
+                       (get % :link)
+                       (get % :title))) (get rss :entries)))
 
 (defn has-row [db table query & value]
   (let [query (format "SELECT COUNT(*) FROM %s WHERE %s"
@@ -56,7 +58,7 @@
     (if-not (has-row db "subscribers"
                  "rss = ? AND subscriber = ?" url subscriber)
       (let [rss (parse-feed url)
-            title (.title rss)]
+            title (rss :title)]
         (jdbc/insert! db :subscribers
                       {:rss url
                        :subscriber subscriber})
@@ -82,10 +84,18 @@
             (jdbc/delete! db :rss ["url = ?" url])))
       (tgapi/send-message bot subscriber "退订失败，没有订阅过的 RSS"))))
 
+(defn escape-title [title]
+  (-> title
+      (string/replace "[" "［")
+      (string/replace "]" "］")
+      (string/replace "(" "（")
+      (string/replace ")" "）"))
+
 (defn get-rss-title [db url]
   (-> (jdbc/query db ["SELECT title FROM rss WHERE url = ?" url])
       (first)
-      (get :title)))
+      (get :title)
+      (escape-title)))
 
 (defn get-sub-list [bot db subscriber]
   (let [result (jdbc/query db ["SELECT rss FROM subscribers
@@ -124,7 +134,7 @@
     entry))
 
 (defn make-rss-update-msg [title updates]
-  (reduce #(format "%s\n[%s](%s)" %1 (.title %2) (.link %2))
+  (reduce #(format "%s\n[%s](%s)" %1 (escape-title (%2 :title)) (%2 :link))
           (format "*%s*" title) updates))
 
 (defn pull-rss-updates [bot db]
@@ -134,8 +144,8 @@
             hash-list (string/split (row :hash_list) #" ")
             rss (parse-feed url)
             new-hash-list (gen-hash-list rss)
-            title (.title rss)
-            updates (filter-updates hash-list new-hash-list (.entries rss))]
+            title (rss :title)
+            updates (filter-updates hash-list new-hash-list (rss :entries))]
         (when (not= (count updates) 0)
           (jdbc/update! db :rss {:title title
                                  :hash_list (string/join " " new-hash-list)}
