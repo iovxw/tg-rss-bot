@@ -74,11 +74,11 @@
       (log/warnf "sub-rss: %s, %s" url (.getMessage e)))))
 
 (defn escape-title [title]
-  (-> title
-      (string/replace "[" "［")
-      (string/replace "]" "］")
-      (string/replace "(" "（")
-      (string/replace ")" "）")))
+  (string/replace title #"\[|\]|\(|\)"
+                  {"[" "［"
+                   "]" "］"
+                   "(" "（"
+                   ")" "）"}))
 
 (defn get-rss-title [db url]
   (-> (jdbc/query db ["SELECT title FROM rss WHERE url = ?" url])
