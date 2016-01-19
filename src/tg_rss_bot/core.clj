@@ -73,29 +73,30 @@
       (tgapi/send-message bot subscriber "订阅失败，请检查 URL 以及是否包含 RSS")
       (log/warnf "sub-rss: %s, %s" url (.getMessage e)))))
 
-(defn unsub-rss [bot db url subscriber]
-  (let [result (jdbc/execute! db ["DELETE FROM subscribers
-                                   WHERE rss = ? AND subscriber = ?"
-                                  url subscriber])]
-    (if (>= (first result) 1)
-      (do (tgapi/send-message bot subscriber "退订成功")
-          (when-not (has-row db "subscribers" "rss = ?" url)
-            ; 最后一个订阅者退订，删除这个 RSS
-            (jdbc/delete! db :rss ["url = ?" url])))
-      (tgapi/send-message bot subscriber "退订失败，没有订阅过的 RSS"))))
-
 (defn escape-title [title]
   (-> title
       (string/replace "[" "［")
       (string/replace "]" "］")
       (string/replace "(" "（")
-      (string/replace ")" "）"))
+      (string/replace ")" "）")))
 
 (defn get-rss-title [db url]
   (-> (jdbc/query db ["SELECT title FROM rss WHERE url = ?" url])
       (first)
       (get :title)
       (escape-title)))
+
+(defn unsub-rss [bot db url subscriber]
+  (let [result (jdbc/execute! db ["DELETE FROM subscribers
+                                   WHERE rss = ? AND subscriber = ?"
+                                  url subscriber])]
+    (if (>= (first result) 1)
+      (let [title (get-rss-title db url)]
+        (tgapi/send-message bot subscriber (format "《%s》退订成功" title))
+        (when-not (has-row db "subscribers" "rss = ?" url)
+          ; 最后一个订阅者退订，删除这个 RSS
+          (jdbc/delete! db :rss ["url = ?" url])))
+      (tgapi/send-message bot subscriber "退订失败，没有订阅过的 RSS"))))
 
 (defn get-sub-list [bot db subscriber]
   (let [result (jdbc/query db ["SELECT rss FROM subscribers
