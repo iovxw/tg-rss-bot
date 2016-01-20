@@ -27,7 +27,8 @@
   ([bot offset]
    (Thread/sleep 500)
    (let [updates (try (tgapi/get-updates bot offset)
-                      (catch Exception e (log/error e "Get updates fail") []))
+                      (catch Exception e
+                        (log/warnf "Get updates fail: %s" (.getMessage e)) []))
          new-offset (if (not= (count updates) 0)
                       (-> updates (last) (get :update_id) (+ 1))
                       offset)] ; updates 数量为 0，可能获取失败，使用旧的 offset

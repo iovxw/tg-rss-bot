@@ -9,8 +9,12 @@
    (let [resp (if data
                 (client/post url {:content-type :json
                                   :body (json/write-str data)
+                                  :socket-timeout 5000
+                                  :conn-timeout 5000
                                   :throw-exceptions false})
-                (client/get url {:throw-exceptions false}))
+                (client/get url {:socket-timeout 5000
+                                 :conn-timeout 5000
+                                 :throw-exceptions false}))
          code (resp :status)]
      (if (or (and (>= code 200) (< code 300))
              (and (>= code 400) (< code 500)))
