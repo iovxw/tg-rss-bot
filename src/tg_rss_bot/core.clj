@@ -68,7 +68,8 @@
                                  :hash_list (string/join " " (gen-hash-list rss))})))
       (tgapi/send-message bot subscriber "订阅失败，已经订阅过的 RSS"))
     (catch Exception e
-      (tgapi/send-message bot subscriber "订阅失败，请检查 URL 以及是否包含 RSS")
+      (tgapi/send-message bot subscriber
+                          (format "订阅失败: %s" (.getMessage e)))
       (log/warnf "sub-rss: %s, %s" url (.getMessage e)))))
 
 (defn escape-title [title]
