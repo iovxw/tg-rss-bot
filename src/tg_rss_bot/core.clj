@@ -40,9 +40,7 @@
        (bytes-hash-to-str)))
 
 (defn gen-hash-list [rss]
-  (map #(get-hash (str (get (get % :description) :value)
-                       (get % :link)
-                       (get % :title))) (get rss :entries)))
+  (map #(get-hash (str (get % :link) (get % :title))) (get rss :entries)))
 
 (defn has-row [db table query & value]
   (let [query (format "SELECT COUNT(*) FROM %s WHERE %s"
