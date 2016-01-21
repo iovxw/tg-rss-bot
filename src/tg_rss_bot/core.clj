@@ -102,12 +102,12 @@
           (jdbc/delete! db :rss ["url = ?" url])))
       (tgapi/send-message bot subscriber "退订失败，没有订阅过的 RSS"))))
 
-(defn get-sub-list [bot db subscriber]
+(defn get-sub-list [bot db subscriber raw?]
   (let [result (jdbc/query db ["SELECT rss FROM subscribers
                                 WHERE subscriber = ?" subscriber])]
     (if-not (= (count result) 0)
-      (let [message (reduce #(format "%s\n[%s](%s)"
-                                     %1 (get-rss-title db (%2 :rss)) (%2 :rss))
+      (let [fmt (if raw? "%s\n%s: %s" "%s\n[%s](%s)")
+            message (reduce #(format fmt %1 (get-rss-title db (%2 :rss)) (%2 :rss))
                             "订阅列表:" result)]
         (tgapi/send-message bot subscriber message
                             :parse-mode "Markdown"
@@ -119,7 +119,8 @@
   (when-let [message (update :message)]
     (when-let [text (message :text)]
       (match (tgapi/parse-cmd bot text)
-             ["rss" _] (get-sub-list bot db (get-in message [:chat :id]))
+             ["rss" raw] (get-sub-list bot db (get-in message [:chat :id])
+                                       (if (= raw "raw") true false))
              ["sub" url] (sub-rss bot db url (get-in message [:chat :id]))
              ["unsub" url] (unsub-rss bot db url (get-in message [:chat :id]))
              [cmd arg] (log/warnf "Unknown command: %s, args: %s" cmd arg)
