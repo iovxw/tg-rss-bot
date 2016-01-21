@@ -1,32 +1,18 @@
 # tg-rss-bot
 
-FIXME: description
+中文 Telegram RSS 机器人 [@TheBlackRSSBot](https://telegram.me/TheBlackRSSBot)
 
-## Installation
+（ID 都被占用了，所以随便起的）
 
-Download from http://example.com/FIXME.
+## 使用
 
-## Usage
+    /rss   - 显示当前订阅的 RSS 列表，加 raw 参数显示链接
+    /sub   - 订阅一个 RSS: /sub http://example.com/feed.xml
+    /unsub - 退订一个 RSS: /unsub http://example.com/feed.xml
 
-FIXME: explanation
+## 运行
 
-    $ java -jar tg-rss-bot-0.1.0-standalone.jar [args]
-
-## Options
-
-FIXME: listing of options this app accepts.
-
-## Examples
-
-...
-
-### Bugs
-
-...
-
-### Any Other Sections
-### That You Think
-### Might be Useful
+    $ java -jar tg-rss-bot-0.1.0-standalone.jar [bot-key]
 
 ## License
 
