@@ -143,26 +143,33 @@
   (reduce #(format "%s\n[%s](%s)" %1 (escape-title (%2 :title)) (%2 :link))
           (format "*%s*" title) updates))
 
+(defn merge-hash-list [src dst]
+  (let [max-len (* (count src) 2)
+        result (vec (distinct (concat src dst)))]
+    (if (> (count result) max-len)
+      (subvec result 0 max-len)
+      result)))
+
 (defn pull-rss-updates [bot db]
   (doseq [row (get-all-rss db)]
-    (try
-      (let [url (row :url)
-            hash-list (string/split (row :hash_list) #" ")
-            rss (parse-feed url)
-            new-hash-list (gen-hash-list rss)
-            title (rss :title)
-            updates (filter-updates hash-list new-hash-list (rss :entries))]
-        (when (not= (count updates) 0)
-          (jdbc/update! db :rss {:title title
-                                 :hash_list (string/join " " new-hash-list)}
-                        ["url = ?" url])
-          (let [message (make-rss-update-msg title updates)]
-            (doseq [subscriber (get-subscribers db url)]
-              (tgapi/send-message bot subscriber message
-                                  :parse-mode "Markdown"
-                                  :disable-web-page-preview true)))))
-      (catch Exception e
-        (log/error e (format "Pull RSS updates fail: %s" (row :url))))))
+    (go (try
+          (let [url (row :url)
+                hash-list (string/split (row :hash_list) #" ")
+                rss (parse-feed url)
+                new-hash-list (gen-hash-list rss)
+                title (rss :title)
+                updates (filter-updates hash-list new-hash-list (rss :entries))]
+            (when (not= (count updates) 0)
+              (jdbc/update! db :rss {:title title
+                                     :hash_list (string/join " " (merge-hash-list new-hash-list hash-list))}
+                            ["url = ?" url])
+              (let [message (make-rss-update-msg title updates)]
+                (doseq [subscriber (get-subscribers db url)]
+                  (tgapi/send-message bot subscriber message
+                                      :parse-mode "Markdown"
+                                      :disable-web-page-preview true)))))
+          (catch Exception e
+            (log/error e (format "Pull RSS updates fail: %s" (row :url)))))))
   (Thread/sleep 300000) ; 5min
   (recur bot db))
 
