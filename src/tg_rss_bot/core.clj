@@ -54,6 +54,31 @@
       false
       true)))
 
+(defn split-message [text max-len]
+  (let [text-len (count text)]
+    (loop [begin 0, offset 0, result []]
+      (let [n (if-let [n (string/index-of text "\n" offset)] n text-len)
+            line-len (- n offset)
+            now-len (- n begin)] ; 当前所选定的长度
+        (if (<= (- text-len begin) max-len) ; 剩下的长度小于最大长度
+          (conj result (subs text begin text-len)) ; DONE
+          (if (> line-len max-len) ; 单行大于最大长度，进行行内切分
+            (let [split-len (- max-len (- offset begin))
+                  split-point (+ offset split-len)]
+              (recur split-point split-point
+                     (conj result (subs text begin split-point))))
+            (if (> now-len max-len)
+              (recur offset (inc n) ; 这里的 (dec offset) 是为了去掉最后一个换行
+                     (conj result (subs text begin (dec offset))))
+              (recur begin (inc n) result))))))))
+
+(defn send-message [bot chat-id text & opts]
+  (if (<= (count text) 1024)
+    (apply tgapi/send-message bot chat-id text opts)
+    (let [messages (split-message text 1024)]
+      (doseq [msg messages]
+        (apply tgapi/send-message bot chat-id msg opts)))))
+
 (defn sub-rss [bot db url subscriber]
   (try
     (if-not (has-row db "subscribers"
@@ -109,9 +134,9 @@
       (let [fmt (if raw? "%s\n%s: %s" "%s\n[%s](%s)")
             message (reduce #(format fmt %1 (get-rss-title db (%2 :rss)) (%2 :rss))
                             "订阅列表:" result)]
-        (tgapi/send-message bot subscriber message
-                            :parse-mode "Markdown"
-                            :disable-web-page-preview true))
+        (send-message bot subscriber message
+                      :parse-mode "Markdown"
+                      :disable-web-page-preview true))
       (tgapi/send-message bot subscriber "订阅列表为空"))))
 
 (defn handle-update [bot db update]
@@ -165,9 +190,9 @@
                             ["url = ?" url])
               (let [message (make-rss-update-msg title updates)]
                 (doseq [subscriber (get-subscribers db url)]
-                  (tgapi/send-message bot subscriber message
-                                      :parse-mode "Markdown"
-                                      :disable-web-page-preview true)))))
+                  (send-message bot subscriber message
+                                :parse-mode "Markdown"
+                                :disable-web-page-preview true)))))
           (catch Exception e
             (log/error e (format "Pull RSS updates fail: %s" (row :url)))))))
   (Thread/sleep 300000) ; 5min
