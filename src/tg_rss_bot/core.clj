@@ -166,7 +166,7 @@
 
 (defn make-rss-update-msg [title updates]
   (reduce #(format "%s\n[%s](%s)" %1 (escape-title (%2 :title)) (%2 :link))
-          (format "*%s*" title) updates))
+          (format "*%s*" (escape-title title)) updates))
 
 (defn merge-hash-list [src dst]
   (let [max-len (* (count src) 2)
