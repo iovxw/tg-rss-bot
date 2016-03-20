@@ -137,8 +137,8 @@
                       (reduce #(format "%s\n<a href=\"%s\">%s</a>" %1 (%2 :rss)
                                        (escape-title (get-rss-title db (%2 :rss))))
                               "订阅列表:" result)
-                    :parse-mode "HTML"
-                    :disable-web-page-preview true))
+                      :parse-mode "HTML"
+                      :disable-web-page-preview true))
       (tgapi/send-message bot subscriber "订阅列表为空"))))
 
 (defn handle-update [bot db update]
