@@ -79,12 +79,15 @@
       (doseq [msg messages]
         (apply tgapi/send-message bot chat-id msg opts)))))
 
+(defn format-title [title]
+  (string/replace title #"(?:^[\s\n]*)|(?:[\s\n]*$)" ""))
+
 (defn sub-rss [bot db url subscriber]
   (try
     (if-not (has-row db "subscribers"
                  "rss = ? AND subscriber = ?" url subscriber)
       (let [rss (parse-feed url)
-            title (rss :title)]
+            title (format-title (rss :title))]
         (jdbc/insert! db :subscribers
                       {:rss url
                        :subscriber subscriber})
@@ -101,13 +104,7 @@
       (log/warnf "sub-rss: %s, %s" url (.getMessage e)))))
 
 (defn escape-title [title]
-  (-> title
-      (string/replace #"(?:^[\s\n]*)|(?:[\s\n]*$)" "")
-      (string/replace #"\[|\]|\(|\)"
-                      {"[" "［"
-                       "]" "］"
-                       "(" "（"
-                       ")" "）"})))
+  (string/escape title {\< "&lt;", \> "&gt;", \& "&amp;"}))
 
 (defn get-rss-title [db url]
   (-> (jdbc/query db ["SELECT title FROM rss WHERE url = ?" url])
@@ -127,16 +124,20 @@
           (jdbc/delete! db :rss ["url = ?" url])))
       (tgapi/send-message bot subscriber "退订失败，没有订阅过的 RSS"))))
 
+(defn gen-sub-list-msg [raw? rss-list]
+  (if raw?
+    (reduce #(format "%s\n%s: %s" %1 (get-rss-title db (%2 :rss)) (%2 :rss))
+            "订阅列表:" rss-list)
+    (reduce #(format "%s\n<a href=\"%s\">%s</a>" %1 (%2 :rss) (get-rss-title db (%2 :rss)))
+            "订阅列表:" rss-list)))
+
 (defn get-sub-list [bot db subscriber raw?]
   (let [result (jdbc/query db ["SELECT rss FROM subscribers
                                 WHERE subscriber = ?" subscriber])]
     (if-not (= (count result) 0)
-      (let [fmt (if raw? "%s\n%s: %s" "%s\n[%s](%s)")
-            message (reduce #(format fmt %1 (get-rss-title db (%2 :rss)) (%2 :rss))
-                            "订阅列表:" result)]
-        (send-message bot subscriber message
-                      :parse-mode "Markdown"
-                      :disable-web-page-preview true))
+      (send-message bot subscriber (gen-sub-list-msg raw? result)
+                    :parse-mode "HTML"
+                    :disable-web-page-preview true)
       (tgapi/send-message bot subscriber "订阅列表为空"))))
 
 (defn handle-update [bot db update]
@@ -165,8 +166,8 @@
     entry))
 
 (defn make-rss-update-msg [title updates]
-  (reduce #(format "%s\n[%s](%s)" %1 (escape-title (%2 :title)) (%2 :link))
-          (format "*%s*" (escape-title title)) updates))
+  (reduce #(format "%s\n<a href=\"%s\">%s</a>" %1 (%2 :link) (escape-title (%2 :title)))
+          (format "<b>%s</b>" (escape-title title)) updates))
 
 (defn merge-hash-list [src dst]
   (let [max-len (* (count src) 2)
@@ -182,7 +183,7 @@
                 hash-list (string/split (row :hash_list) #" ")
                 rss (parse-feed url)
                 new-hash-list (gen-hash-list rss)
-                title (rss :title)
+                title (format-title (rss :title))
                 updates (filter-updates hash-list new-hash-list (rss :entries))]
             (when (not= (count updates) 0)
               (jdbc/update! db :rss {:title title
@@ -191,7 +192,7 @@
               (let [message (make-rss-update-msg title updates)]
                 (doseq [subscriber (get-subscribers db url)]
                   (send-message bot subscriber message
-                                :parse-mode "Markdown"
+                                :parse-mode "HTML"
                                 :disable-web-page-preview true)))))
           (catch Exception e
             (log/error e (format "Pull RSS updates fail: %s" (row :url)))))))
