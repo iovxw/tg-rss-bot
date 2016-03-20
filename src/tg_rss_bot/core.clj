@@ -109,8 +109,7 @@
 (defn get-rss-title [db url]
   (-> (jdbc/query db ["SELECT title FROM rss WHERE url = ?" url])
       (first)
-      (get :title)
-      (escape-title)))
+      (get :title)))
 
 (defn unsub-rss [bot db url subscriber]
   (let [result (jdbc/execute! db ["DELETE FROM subscribers
@@ -124,20 +123,22 @@
           (jdbc/delete! db :rss ["url = ?" url])))
       (tgapi/send-message bot subscriber "退订失败，没有订阅过的 RSS"))))
 
-(defn gen-sub-list-msg [raw? rss-list]
-  (if raw?
-    (reduce #(format "%s\n%s: %s" %1 (get-rss-title db (%2 :rss)) (%2 :rss))
-            "订阅列表:" rss-list)
-    (reduce #(format "%s\n<a href=\"%s\">%s</a>" %1 (%2 :rss) (get-rss-title db (%2 :rss)))
-            "订阅列表:" rss-list)))
-
 (defn get-sub-list [bot db subscriber raw?]
   (let [result (jdbc/query db ["SELECT rss FROM subscribers
                                 WHERE subscriber = ?" subscriber])]
     (if-not (= (count result) 0)
-      (send-message bot subscriber (gen-sub-list-msg raw? result)
+      (if raw?
+        (send-message bot subscriber
+                      (reduce #(format "%s\n%s: %s" %1
+                                       (get-rss-title db (%2 :rss)) (%2 :rss))
+                              "订阅列表:" result)
+                      :disable-web-page-preview true)
+        (send-message bot subscriber
+                      (reduce #(format "%s\n<a href=\"%s\">%s</a>" %1 (%2 :rss)
+                                       (escape-title (get-rss-title db (%2 :rss))))
+                              "订阅列表:" result)
                     :parse-mode "HTML"
-                    :disable-web-page-preview true)
+                    :disable-web-page-preview true))
       (tgapi/send-message bot subscriber "订阅列表为空"))))
 
 (defn handle-update [bot db update]
