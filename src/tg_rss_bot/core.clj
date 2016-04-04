@@ -196,7 +196,7 @@
                                 :parse-mode "HTML"
                                 :disable-web-page-preview true)))))
           (catch Exception e
-            (log/error e (format "Pull RSS updates fail: %s" (row :url)))))))
+            (log/warnf "Pull RSS updates fail: %s\n%s" (row :url) (.getMessage e))))))
   (Thread/sleep 300000) ; 5min
   (recur bot db))
 
