@@ -3,9 +3,10 @@
             [clojure.tools.logging :as log]
             [clojure.java.jdbc :as jdbc]
             [clojure.string :as string]
+            [clj-http.client :as client]
             [clojure.core.async :refer [go]]
             [clojure.core.match :refer [match]]
-            [feedparser-clj.core :refer [parse-feed]])
+            [feedparser-clj.core :as feedparser])
   (:gen-class))
 
 (def db
@@ -78,6 +79,14 @@
     (let [messages (split-message text 1024)]
       (doseq [msg messages]
         (apply tgapi/send-message bot chat-id msg opts)))))
+
+(defn parse-feed [url]
+  (let [resp (client/get url {:as :stream
+                              :headers {"User-Agent"
+                                        (str "Mozilla/5.0 (X11; Linux x86_64) "
+                                             "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                             "Chrome/49.0.2623.110 Safari/537.36")}})]
+    (feedparser/parse-feed (resp :body))))
 
 (defn format-title [title]
   (string/replace title #"(?:^[\s\n]*)|(?:[\s\n]*$)" ""))
