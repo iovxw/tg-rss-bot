@@ -4,7 +4,7 @@
             [clojure.java.jdbc :as jdbc]
             [clojure.string :as string]
             [clj-http.client :as client]
-            [clojure.core.async :refer [go <!! timeout]]
+            [clojure.core.async :refer [go go-loop <! timeout]]
             [clojure.core.match :refer [match]]
             [feedparser-clj.core :as feedparser])
   (:gen-class))
@@ -187,32 +187,34 @@
       result)))
 
 (defn pull-rss-updates [bot db]
-  (doseq [row (get-all-rss db)]
-    (go (try
-          (let [url (row :url)
-                hash-list (string/split (row :hash_list) #" ")
-                rss (parse-feed url)
-                new-hash-list (gen-hash-list rss)
-                title (format-title (rss :title))
-                updates (filter-updates hash-list new-hash-list (rss :entries))]
-            (when (not= (count updates) 0)
-              (jdbc/update! db :rss {:title title
-                                     :hash_list (string/join " " (merge-hash-list new-hash-list hash-list))}
-                            ["url = ?" url])
-              (let [message (make-rss-update-msg title updates)]
-                (doseq [subscriber (get-subscribers db url)]
-                  (send-message bot subscriber message
-                                :parse-mode "HTML"
-                                :disable-web-page-preview true)))))
-          (catch Exception e
-            (log/warnf "Pull RSS updates fail: %s\n%s" (row :url) (.getMessage e))))))
-  (<!! (timeout 300000)) ; 5min
-  (recur bot db))
+  (go-loop []
+    (doseq [row (get-all-rss db)]
+      (go (try
+            (let [url (row :url)
+                  hash-list (string/split (row :hash_list) #" ")
+                  rss (parse-feed url)
+                  new-hash-list (gen-hash-list rss)
+                  title (format-title (rss :title))
+                  updates (filter-updates hash-list new-hash-list (rss :entries))]
+              (when (not= (count updates) 0)
+                (jdbc/update! db :rss {:title title
+                                       :hash_list (string/join " " (merge-hash-list new-hash-list hash-list))}
+                              ["url = ?" url])
+                (let [message (make-rss-update-msg title updates)]
+                  (doseq [subscriber (get-subscribers db url)]
+                    (send-message bot subscriber message
+                                  :parse-mode "HTML"
+                                  :disable-web-page-preview true)))))
+            (catch Exception e
+              (log/warnf "Pull RSS updates fail: %s\n%s" (row :url) (.getMessage e))))))
+    ; 5min
+    (<! (timeout 300000))
+    (recur)))
 
 (defn -main [bot-key]
   (init-db db)
   (let [bot (tgapi/new-bot bot-key)]
-    (go (pull-rss-updates bot db))
+    (pull-rss-updates bot db)
     (loop [updates (updates-seq bot)]
       (go (handle-update bot db (first updates)))
       (recur (rest updates)))))
