@@ -176,7 +176,9 @@
     entry))
 
 (defn make-rss-update-msg [title updates]
-  (reduce #(format "%s\n<a href=\"%s\">%s</a>" %1 (%2 :link) (escape-title (%2 :title)))
+  (reduce #(format "%s\n<a href=\"%s\">%s</a>" %1 (%2 :link) (-> (%2 :title)
+                                                                 (format-title)
+                                                                 (escape-title)))
           (format "<b>%s</b>" (escape-title title)) updates))
 
 (defn merge-hash-list [src dst]
