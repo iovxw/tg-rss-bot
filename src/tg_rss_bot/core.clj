@@ -4,7 +4,7 @@
             [clojure.java.jdbc :as jdbc]
             [clojure.string :as string]
             [clj-http.client :as client]
-            [clojure.core.async :refer [go]]
+            [clojure.core.async :refer [go <!! timeout]]
             [clojure.core.match :refer [match]]
             [feedparser-clj.core :as feedparser])
   (:gen-class))
@@ -206,7 +206,7 @@
                                 :disable-web-page-preview true)))))
           (catch Exception e
             (log/warnf "Pull RSS updates fail: %s\n%s" (row :url) (.getMessage e))))))
-  (Thread/sleep 300000) ; 5min
+  (<!! (timeout 300000)) ; 5min
   (recur bot db))
 
 (defn -main [bot-key]
