@@ -4,7 +4,6 @@
             [clojure.java.jdbc :as jdbc]
             [clojure.string :as string]
             [clj-http.client :as client]
-            [clojure.core.async :refer [go go-loop <! timeout]]
             [clojure.core.match :refer [match]]
             [feedparser-clj.core :as feedparser])
   (:gen-class))
@@ -189,9 +188,11 @@
       result)))
 
 (defn pull-rss-updates [bot db]
-  (go-loop []
-    (doseq [row (get-all-rss db)]
-      (go (try
+  (future
+    (loop []
+      (doseq [row (get-all-rss db)]
+        (future
+          (try
             (let [url (row :url)
                   hash-list (string/split (row :hash_list) #" ")
                   rss (parse-feed url)
@@ -209,14 +210,13 @@
                                   :disable-web-page-preview true)))))
             (catch Exception e
               (log/warnf "Pull RSS updates fail: %s\n%s" (row :url) (.getMessage e))))))
-    ; 5min
-    (<! (timeout 300000))
-    (recur)))
+      (Thread/sleep 300000) ; 5min
+      (recur))))
 
 (defn -main [bot-key]
   (init-db db)
   (let [bot (tgapi/new-bot bot-key)]
     (pull-rss-updates bot db)
     (loop [updates (updates-seq bot)]
-      (go (handle-update bot db (first updates)))
+      (future (handle-update bot db (first updates)))
       (recur (rest updates)))))

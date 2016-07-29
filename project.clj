@@ -8,7 +8,6 @@
                  [clj-http "3.0.0-SNAPSHOT"]
                  [org.clojure/java.jdbc "0.3.5"]
                  [org.xerial/sqlite-jdbc "3.7.2"]
-                 [org.clojure/core.async "0.2.374"]
                  [org.clojure/tools.logging "0.3.1"]
                  [org.clojure/core.match "0.3.0-alpha4"]
                  [org.clojars.smallrivers/feedparser-clj "0.4"]]
