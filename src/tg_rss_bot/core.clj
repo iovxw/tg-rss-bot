@@ -17,7 +17,8 @@
   (jdbc/execute! db ["CREATE TABLE IF NOT EXISTS rss (
                       url       VARCHAR,
                       title     VARCHAR,
-                      hash_list VARCHAR)"])
+                      hash_list VARCHAR,
+                      err_count INTEGER)"])
   (jdbc/execute! db ["CREATE TABLE IF NOT EXISTS subscribers (
                       rss        VARCHAR,
                       subscriber INTEGER)"]))
@@ -80,12 +81,15 @@
         (apply tgapi/send-message bot chat-id msg opts)))))
 
 (defn parse-feed [url]
-  (let [resp (client/get url {:as :stream
-                              :headers {"User-Agent"
-                                        (str "Mozilla/5.0 (X11; Linux x86_64) "
-                                             "AppleWebKit/537.36 (KHTML, like Gecko) "
-                                             "Chrome/49.0.2623.110 Safari/537.36")}})]
-    (feedparser/parse-feed (resp :body))))
+  (try
+    (let [resp (client/get url {:as :stream
+                                :headers {"User-Agent"
+                                          (str "Mozilla/5.0 (X11; Linux x86_64) "
+                                               "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                               "Chrome/49.0.2623.110 Safari/537.36")}})]
+      (feedparser/parse-feed (resp :body)))
+    (catch Exception e
+      (ex-info (.getMessage e) {:type :rss-exception}))))
 
 (defn format-title [title]
   (string/replace title #"(?:^[\s\n]*)|(?:[\s\n]*$)" ""))
@@ -104,7 +108,8 @@
         ; 检查是否为第一次订阅
         (when-not (has-row db "rss" "url = ?" url)
           (jdbc/insert! db :rss {:url url :title title
-                                 :hash_list (string/join " " (gen-hash-list rss))})))
+                                 :hash_list (string/join " " (gen-hash-list rss))
+                                 :err_count 0})))
       (tgapi/send-message bot subscriber "订阅失败，已经订阅过的 RSS"))
     (catch Exception e
       (tgapi/send-message bot subscriber
@@ -201,7 +206,8 @@
                   updates (filter-updates hash-list new-hash-list (rss :entries))]
               (when (not= (count updates) 0)
                 (jdbc/update! db :rss {:title title
-                                       :hash_list (string/join " " (merge-hash-list new-hash-list hash-list))}
+                                       :hash_list (string/join " " (merge-hash-list new-hash-list hash-list))
+                                       :err_count 0}
                               ["url = ?" url])
                 (let [message (make-rss-update-msg title updates)]
                   (doseq [subscriber (get-subscribers db url)]
@@ -209,7 +215,22 @@
                                   :parse-mode "HTML"
                                   :disable-web-page-preview true)))))
             (catch Exception e
-              (log/warnf "Pull RSS updates fail: %s\n%s" (row :url) (.getMessage e))))))
+              (let [msg (.getMessage e)
+                    url (row :url)
+                    title (row :title)
+                    err-count (inc (row :err_count))]
+                (log/warnf "Pull RSS updates fail: %s\n%s" url msg)
+                (when (= (get (ex-data e) :type) :rss-exception)
+                  (if (< err-count 1440)
+                    (jdbc/update! db :rss {:err_count err-count})
+                    (do (doseq [subscriber (get-subscribers db url)]
+                          (send-message bot subscriber
+                                        (format "《<a href=\"%s\">%s</a>》已经连续五天拉取出错（%s），可能已经关闭，请取消订阅"
+                                                url title msg)
+                                        :parse-mode "HTML"
+                                        :disable-web-page-preview true))
+                        (jdbc/update! db :rss {:err_count 0}
+                                      ["url = ?" url])))))))))
       (Thread/sleep 300000) ; 5min
       (recur))))
 
