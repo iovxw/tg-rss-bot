@@ -89,7 +89,8 @@
                                                "Chrome/49.0.2623.110 Safari/537.36")}})]
       (feedparser/parse-feed (resp :body)))
     (catch Exception e
-      (ex-info (.getMessage e) {:type :rss-exception}))))
+      (throw
+       (ex-info (.getMessage e) {:type :rss-exception})))))
 
 (defn format-title [title]
   (string/replace title #"(?:^[\s\n]*)|(?:[\s\n]*$)" ""))
