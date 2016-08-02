@@ -1,4 +1,4 @@
-(defproject tg-rss-bot "0.2.0"
+(defproject tg-rss-bot "0.3.0"
   :description "Yet another RSS bot for Telegram"
   :url "https://github.com/iovxw/tg-rss-bot"
   :license {:name "The MIT License"
@@ -10,7 +10,8 @@
                  [org.xerial/sqlite-jdbc "3.7.2"]
                  [org.clojure/tools.logging "0.3.1"]
                  [org.clojure/core.match "0.3.0-alpha4"]
-                 [org.clojars.smallrivers/feedparser-clj "0.4"]]
+                 [org.slf4j/slf4j-simple "1.7.21"]
+                 [org.clojars.dive-networks/feedparser-clj "0.5.3"]]
   :main ^:skip-aot tg-rss-bot.core
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}})

@@ -3,7 +3,6 @@
             [clojure.tools.logging :as log]
             [clojure.java.jdbc :as jdbc]
             [clojure.string :as string]
-            [clj-http.client :as client]
             [clojure.core.match :refer [match]]
             [feedparser-clj.core :as feedparser])
   (:gen-class))
@@ -31,7 +30,7 @@
                       (catch Exception e
                         (log/warnf "Get updates fail: %s" (.getMessage e)) []))
          new-offset (if (not= (count updates) 0)
-                      (-> updates (last) (get :update_id) (+ 1))
+                      (-> updates last :update_id inc)
                       offset)] ; updates 数量为 0，可能获取失败，使用旧的 offset
      (lazy-cat updates (updates-seq bot new-offset)))))
 
@@ -44,7 +43,7 @@
        (bytes-hash-to-str)))
 
 (defn gen-hash-list [rss]
-  (map #(get-hash (str (get % :link) (get % :title))) (get rss :entries)))
+  (map #(get-hash (str (:link %) (:title %))) (:entries rss)))
 
 (defn has-row [db table query & value]
   (let [query (format "SELECT COUNT(*) FROM %s WHERE %s"
@@ -82,30 +81,36 @@
 
 (defn parse-feed [url]
   (try
-    (let [resp (client/get url {:as :stream
-                                :headers {"User-Agent"
-                                          (str "Mozilla/5.0 (X11; Linux x86_64) "
-                                               "AppleWebKit/537.36 (KHTML, like Gecko) "
-                                               "Chrome/49.0.2623.110 Safari/537.36")}})]
-      (feedparser/parse-feed (resp :body)))
+    (feedparser/parse-feed url :user-agent (str "Mozilla/5.0 (X11; Linux x86_64) "
+                                                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                                "Chrome/52.0.2743.82 Safari/537.36"))
+    (catch java.io.FileNotFoundException _
+      (throw (ex-info "文件不存在，请确认 URL 是否正确" {:type :rss-exception})))
+    (catch java.net.UnknownHostException _
+      (throw (ex-info "无法找到目标地址，请确认 URL 是否正确" {:type :rss-exception})))
     (catch Exception e
-      (throw
-       (ex-info (.getMessage e) {:type :rss-exception})))))
+      (throw (ex-info (.getMessage e) {:type :rss-exception})))))
 
 (defn format-title [title]
   (string/replace title #"(?:^[\s\n]*)|(?:[\s\n]*$)" ""))
+
+(defn escape-title [title]
+  (string/escape title {\< "&lt;", \> "&gt;", \& "&amp;"}))
 
 (defn sub-rss [bot db url subscriber]
   (try
     (if-not (has-row db "subscribers"
                  "rss = ? AND subscriber = ?" url subscriber)
       (let [rss (parse-feed url)
-            title (format-title (rss :title))]
+            title (format-title (:title rss))]
         (jdbc/insert! db :subscribers
                       {:rss url
                        :subscriber subscriber})
         (tgapi/send-message bot subscriber
-                            (format "《%s》订阅成功" title))
+                            (format "《<a href=\"%s\">%s</a>》订阅成功"
+                                    url (escape-title title))
+                            :parse-mode "HTML"
+                            :disable-web-page-preview true)
         ; 检查是否为第一次订阅
         (when-not (has-row db "rss" "url = ?" url)
           (jdbc/insert! db :rss {:url url :title title
@@ -117,13 +122,10 @@
                           (format "订阅失败: %s" (.getMessage e)))
       (log/warnf "sub-rss: %s, %s" url (.getMessage e)))))
 
-(defn escape-title [title]
-  (string/escape title {\< "&lt;", \> "&gt;", \& "&amp;"}))
-
 (defn get-rss-title [db url]
   (-> (jdbc/query db ["SELECT title FROM rss WHERE url = ?" url])
       (first)
-      (get :title)))
+      (:title)))
 
 (defn unsub-rss [bot db url subscriber]
   (let [result (jdbc/execute! db ["DELETE FROM subscribers
@@ -131,7 +133,10 @@
                                   url subscriber])]
     (if (>= (first result) 1)
       (let [title (get-rss-title db url)]
-        (tgapi/send-message bot subscriber (format "《%s》退订成功" title))
+        (tgapi/send-message bot subscriber (format "《<a href=\"%s\">%s</a>》退订成功"
+                                                   url (escape-title title))
+                            :parse-mode "HTML"
+                            :disable-web-page-preview true)
         (when-not (has-row db "subscribers" "rss = ?" url)
           ; 最后一个订阅者退订，删除这个 RSS
           (jdbc/delete! db :rss ["url = ?" url])))
@@ -144,12 +149,12 @@
       (if raw?
         (send-message bot subscriber
                       (reduce #(format "%s\n%s: %s" %1
-                                       (get-rss-title db (%2 :rss)) (%2 :rss))
+                                       (get-rss-title db (:rss %2)) (:rss %2))
                               "订阅列表:" result)
                       :disable-web-page-preview true)
         (send-message bot subscriber
-                      (reduce #(format "%s\n<a href=\"%s\">%s</a>" %1 (%2 :rss)
-                                       (escape-title (get-rss-title db (%2 :rss))))
+                      (reduce #(format "%s\n<a href=\"%s\">%s</a>" %1 (:rss %2)
+                                       (escape-title (get-rss-title db (:rss %2))))
                               "订阅列表:" result)
                       :parse-mode "HTML"
                       :disable-web-page-preview true))
@@ -157,15 +162,15 @@
 
 (defn handle-update [bot db update]
   (prn update)
-  (when-let [message (update :message)]
-    (when-let [text (message :text)]
+  (when-let [message (:message update)]
+    (when-let [text (:text message)]
       (match (tgapi/parse-cmd bot text)
              ["rss" raw] (get-sub-list bot db (get-in message [:chat :id])
                                        (if (= raw "raw") true false))
              ["sub" url] (sub-rss bot db url (get-in message [:chat :id]))
              ["unsub" url] (unsub-rss bot db url (get-in message [:chat :id]))
              [cmd arg] (log/warnf "Unknown command: %s, args: %s" cmd arg)
-             :else (log/warnf "Unable to parse command: %s" (message :text))))))
+             :else (log/warnf "Unable to parse command: %s" (:text message))))))
 
 (defn get-all-rss [db]
   (jdbc/query db ["SELECT * FROM rss"]))
@@ -173,7 +178,7 @@
 (defn get-subscribers [db rss]
   (let [result (jdbc/query db ["SELECT subscriber FROM subscribers
                                 WHERE rss = ?" rss])]
-    (map #(get % :subscriber) result)))
+    (map #(:subscriber %) result)))
 
 (defn filter-updates [hash-list new-hash-list entries]
   (for [[nh entry] (zipmap new-hash-list entries)
@@ -181,7 +186,7 @@
     entry))
 
 (defn make-rss-update-msg [title updates]
-  (reduce #(format "%s\n<a href=\"%s\">%s</a>" %1 (%2 :link) (-> (%2 :title)
+  (reduce #(format "%s\n<a href=\"%s\">%s</a>" %1 (:link %2) (-> (:title %2)
                                                                  (format-title)
                                                                  (escape-title)))
           (format "<b>%s</b>" (escape-title title)) updates))
@@ -199,12 +204,12 @@
       (doseq [row (get-all-rss db)]
         (future
           (try
-            (let [url (row :url)
-                  hash-list (string/split (row :hash_list) #" ")
+            (let [url (:url row)
+                  hash-list (string/split (:hash_list row) #" ")
                   rss (parse-feed url)
                   new-hash-list (gen-hash-list rss)
-                  title (format-title (rss :title))
-                  updates (filter-updates hash-list new-hash-list (rss :entries))]
+                  title (format-title (:title rss))
+                  updates (filter-updates hash-list new-hash-list (:entries rss))]
               (when (not= (count updates) 0)
                 (jdbc/update! db :rss {:title title
                                        :hash_list (string/join " " (merge-hash-list new-hash-list hash-list))
@@ -217,17 +222,17 @@
                                   :disable-web-page-preview true)))))
             (catch Exception e
               (let [msg (.getMessage e)
-                    url (row :url)
-                    title (row :title)
-                    err-count (inc (row :err_count))]
+                    url (:url row)
+                    title (:title row)
+                    err-count (inc (:err_count row))]
                 (log/warnf "Pull RSS updates fail: %s\n%s" url msg)
-                (when (= (get (ex-data e) :type) :rss-exception)
+                (when (= (:type (ex-data e)) :rss-exception)
                   (if (< err-count 1440)
                     (jdbc/update! db :rss {:err_count err-count})
                     (do (doseq [subscriber (get-subscribers db url)]
                           (send-message bot subscriber
                                         (format "《<a href=\"%s\">%s</a>》已经连续五天拉取出错（%s），可能已经关闭，请取消订阅"
-                                                url title msg)
+                                                url (escape-title title) msg)
                                         :parse-mode "HTML"
                                         :disable-web-page-preview true))
                         (jdbc/update! db :rss {:err_count 0}
