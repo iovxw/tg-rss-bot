@@ -85,9 +85,9 @@
                                                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                                                 "Chrome/52.0.2743.82 Safari/537.36"))
     (catch java.io.FileNotFoundException _
-      (throw (ex-info "文件不存在，请确认 URL 是否正确" {:type :rss-exception})))
+      (throw (ex-info "页面不存在" {:type :rss-exception})))
     (catch java.net.UnknownHostException _
-      (throw (ex-info "无法找到目标地址，请确认 URL 是否正确" {:type :rss-exception})))
+      (throw (ex-info "未知服务器地址" {:type :rss-exception})))
     (catch Exception e
       (throw (ex-info (.getMessage e) {:type :rss-exception})))))
 
@@ -165,12 +165,25 @@
   (when-let [message (:message update)]
     (when-let [text (:text message)]
       (match (tgapi/parse-cmd bot text)
-             ["rss" raw] (get-sub-list bot db (get-in message [:chat :id])
-                                       (if (= raw "raw") true false))
-             ["sub" url] (sub-rss bot db url (get-in message [:chat :id]))
-             ["unsub" url] (unsub-rss bot db url (get-in message [:chat :id]))
-             [cmd arg] (log/warnf "Unknown command: %s, args: %s" cmd arg)
-             :else (log/warnf "Unable to parse command: %s" (:text message))))))
+        ["start" _] (tgapi/send-message bot (get-in message [:chat :id])
+                                        (str "命令列表：\n"
+                                             "/rss - 显示当前订阅的 RSS 列表，可以加 raw 参数显示原始链接\n"
+                                             "/sub - 命令后加要订阅的 RSS 链接，订阅一条 RSS\n"
+                                             "/unsub - 命令后加要退订的 RSS 链接，退订一条 RSS\n"
+                                             "本项目源码：\n"
+                                             "https://github.com/iovxw/tg-rss-bot"))
+        ["rss" raw] (get-sub-list bot db (get-in message [:chat :id])
+                                  (if (= raw "raw") true false))
+        ["sub" url] (if url
+                      (sub-rss bot db url (get-in message [:chat :id]))
+                      (tgapi/send-message bot (get-in message [:chat :id])
+                                          "RSS 不能为空, 请在命令后加入要订阅的 RSS 地址"))
+        ["unsub" url] (if url
+                        (unsub-rss bot db url (get-in message [:chat :id]))
+                        (tgapi/send-message bot (get-in message [:chat :id])
+                                            "RSS 不能为空, 请在命令后加入要退订的 RSS 地址"))
+        [cmd arg] (log/warnf "Unknown command: %s, args: %s" cmd arg)
+        :else (log/warnf "Unable to parse command: %s" (:text message))))))
 
 (defn get-all-rss [db]
   (jdbc/query db ["SELECT * FROM rss"]))
