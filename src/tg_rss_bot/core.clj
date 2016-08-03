@@ -45,14 +45,12 @@
 (defn gen-hash-list [rss]
   (map #(get-hash (str (:link %) (:title %))) (:entries rss)))
 
-(defn has-row [db table query & value]
+(defn has-row? [db table query & value]
   (let [query (format "SELECT COUNT(*) FROM %s WHERE %s"
                       table query)
         result (jdbc/query db (cons query value))]
     ; result like ({:count(*) 1})
-    (if (= (get (first result) (keyword "count(*)")) 0)
-      false
-      true)))
+    (not (zero? ((keyword "count(*)") (first result))))))
 
 (defn split-message [text max-len]
   (let [text-len (count text)]
@@ -99,8 +97,8 @@
 
 (defn sub-rss [bot db url subscriber]
   (try
-    (if-not (has-row db "subscribers"
-                 "rss = ? AND subscriber = ?" url subscriber)
+    (if-not (has-row? db "subscribers"
+                      "rss = ? AND subscriber = ?" url subscriber)
       (let [rss (parse-feed url)
             title (format-title (:title rss))]
         (jdbc/insert! db :subscribers
@@ -112,7 +110,7 @@
                             :parse-mode "HTML"
                             :disable-web-page-preview true)
         ; 检查是否为第一次订阅
-        (when-not (has-row db "rss" "url = ?" url)
+        (when-not (has-row? db "rss" "url = ?" url)
           (jdbc/insert! db :rss {:url url :title title
                                  :hash_list (string/join " " (gen-hash-list rss))
                                  :err_count 0})))
@@ -137,7 +135,7 @@
                                                    url (escape-title title))
                             :parse-mode "HTML"
                             :disable-web-page-preview true)
-        (when-not (has-row db "subscribers" "rss = ?" url)
+        (when-not (has-row? db "subscribers" "rss = ?" url)
           ; 最后一个订阅者退订，删除这个 RSS
           (jdbc/delete! db :rss ["url = ?" url])))
       (tgapi/send-message bot subscriber "退订失败，没有订阅过的 RSS"))))
