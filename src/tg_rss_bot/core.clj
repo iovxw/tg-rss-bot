@@ -237,7 +237,7 @@
                 (log/warnf "Pull RSS updates fail: %s\n%s" url msg)
                 (when (= (:type (ex-data e)) :rss-exception)
                   (if (< err-count 1440)
-                    (jdbc/update! db :rss {:err_count err-count})
+                    (jdbc/update! db :rss {:err_count err-count} ["url = ?" url])
                     (do (doseq [subscriber (get-subscribers db url)]
                           (send-message bot subscriber
                                         (format "《<a href=\"%s\">%s</a>》已经连续五天拉取出错（%s），可能已经关闭，请取消订阅"
