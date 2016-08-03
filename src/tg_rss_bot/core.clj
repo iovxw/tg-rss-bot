@@ -3,6 +3,7 @@
             [clojure.tools.logging :as log]
             [clojure.java.jdbc :as jdbc]
             [clojure.string :as string]
+            [clj-http.client :as client]
             [clojure.core.match :refer [match]]
             [feedparser-clj.core :as feedparser])
   (:gen-class))
@@ -77,15 +78,101 @@
       (doseq [msg messages]
         (apply tgapi/send-message bot chat-id msg opts)))))
 
+(def status-code
+  {100 "Continue"
+   101 "Switching Protocols"
+   102 "Processing"
+   200 "OK"
+   201 "Created"
+   202 "Accepted"
+   203 "Non-Authoritative Information"
+   204 "No Content"
+   205 "Reset Content"
+   206 "Partial Content"
+   207 "Multi-Status"
+   208 "Already Reported"
+   226 "IM Used"
+   300 "Multiple Choices"
+   301 "Moved Permanently"
+   302 "Found"
+   303 "See Other"
+   304 "Not Modified"
+   305 "Use Proxy"
+   306 "Switch Proxy"
+   307 "Temporary Redirect"
+   308 "Permanent Redirect"
+   400 "Bad Request"
+   401 "Unauthorized"
+   402 "Payment Required"
+   403 "Forbidden"
+   404 "Not Found"
+   405 "Method Not Allowed"
+   406 "Not Acceptable"
+   407 "Proxy Authentication Required"
+   408 "Request Timeout"
+   409 "Conflict"
+   410 "Gone"
+   411 "Length Required"
+   412 "Precondition Failed"
+   413 "Payload Too Large"
+   414 "URI Too Long"
+   415 "Unsupported Media Type"
+   416 "Range Not Satisfiable"
+   417 "Expectation Failed"
+   418 "I'm a teapot"
+   421 "Misdirected Request"
+   422 "Unprocessable Entity"
+   423 "Locked"
+   424 "Failed Dependency"
+   426 "Upgrade Required"
+   428 "Precondition Required"
+   429 "Too Many Requests"
+   431 "Request Header Fields Too Large"
+   451 "Unavailable For Legal Reasons"
+   500 "Internal Server Error"
+   501 "Not Implemented"
+   502 "Bad Gateway"
+   503 "Service Unavailable"
+   504 "Gateway Timeout"
+   505 "HTTP Version Not Supported"
+   506 "Variant Also Negotiates"
+   507 "Insufficient Storage"
+   508 "Loop Detected"
+   510 "Not Extended"
+   511 "Network Authentication Required"
+   ; nginx
+   444 "No Response"
+   495 "SSL Certificate Error"
+   496 "SSL Certificate Required"
+   497 "HTTP Request Sent to HTTPS Port"
+   499 "Client Closed Request"
+   ; CloudFlare
+   520 "Unknown Error"
+   521 "Web Server Is Down"
+   522 "Connection Timed Out"
+   523 "Origin Is Unreachable"
+   524 "A Timeout Occurred"
+   525 "SSL Handshake Failed"
+   526 "Invalid SSL Certificate"})
+
 (defn parse-feed [url]
   (try
-    (feedparser/parse-feed url :user-agent (str "Mozilla/5.0 (X11; Linux x86_64) "
-                                                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                                                "Chrome/52.0.2743.82 Safari/537.36"))
-    (catch java.io.FileNotFoundException _
-      (throw (ex-info "页面不存在" {:type :rss-exception})))
+    ; fix ParsingFeedException
+    ; https://github.com/rometools/rome/issues/222
+    (let [resp (client/get url {:as :stream
+                                :headers {"User-Agent"
+                                          (str "Mozilla/5.0 (X11; Linux x86_64) "
+                                               "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                               "Chrome/52.0.2743.82 Safari/537.36")}})]
+      (feedparser/parse-feed (resp :body)))
     (catch java.net.UnknownHostException _
       (throw (ex-info "未知服务器地址" {:type :rss-exception})))
+    (catch clojure.lang.ExceptionInfo e
+      (throw (ex-info (let [code (:status (ex-data e))]
+                        (if code
+                          (format "HTTP %s: %s" code (get status-code code))
+                          (.getMessage e)))
+                      {:type :rss-exception})))
     (catch Exception e
       (throw (ex-info (.getMessage e) {:type :rss-exception})))))
 
