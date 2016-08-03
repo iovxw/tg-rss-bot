@@ -174,14 +174,12 @@
                                              "https://github.com/iovxw/tg-rss-bot"))
         ["rss" raw] (get-sub-list bot db (get-in message [:chat :id])
                                   (if (= raw "raw") true false))
-        ["sub" url] (if url
-                      (sub-rss bot db url (get-in message [:chat :id]))
-                      (tgapi/send-message bot (get-in message [:chat :id])
-                                          "RSS 不能为空, 请在命令后加入要订阅的 RSS 地址"))
-        ["unsub" url] (if url
-                        (unsub-rss bot db url (get-in message [:chat :id]))
-                        (tgapi/send-message bot (get-in message [:chat :id])
-                                            "RSS 不能为空, 请在命令后加入要退订的 RSS 地址"))
+        ["sub" nil] (tgapi/send-message bot (get-in message [:chat :id])
+                                        "RSS 不能为空, 请在命令后加入要订阅的 RSS 地址")
+        ["sub" url] (sub-rss bot db url (get-in message [:chat :id]))
+        ["unsub" nil] (tgapi/send-message bot (get-in message [:chat :id])
+                                          "RSS 不能为空, 请在命令后加入要退订的 RSS 地址")
+        ["unsub" url] (unsub-rss bot db url (get-in message [:chat :id]))
         [cmd arg] (log/warnf "Unknown command: %s, args: %s" cmd arg)
         :else (log/warnf "Unable to parse command: %s" (:text message))))))
 
