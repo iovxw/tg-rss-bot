@@ -62,6 +62,27 @@
             (if-not-nil-add "reply_to_message_id" reply-to-message-id)
             (if-not-nil-add "reply_markup" reply-markup))))
 
+(defn edit-message-text- [bot chat-id message-id inline-message-id text
+                          parse-mode disable-web-page-preview reply-markup]
+  (req bot "editMessageText"
+       (->> {"text" text}
+            (if-not-nil-add "chat_id" chat-id)
+            (if-not-nil-add "message_id" message-id)
+            (if-not-nil-add "inline_message_id" inline-message-id)
+            (if-not-nil-add "parse_mode" parse-mode)
+            (if-not-nil-add "disable_web_page_preview" disable-web-page-preview)
+            (if-not-nil-add "reply_markup" reply-markup))))
+
+(defn edit-message-text [bot chat-id message-id text &
+                         {:keys [parse-mode disable-web-page-preview reply-markup]}]
+  (edit-message-text- bot chat-id message-id nil text
+                      parse-mode disable-web-page-preview reply-markup))
+
+(defn edit-message-text-inline [bot inline-message-id text &
+                                {:keys [parse-mode disable-web-page-preview reply-markup]}]
+  (edit-message-text- bot nil nil inline-message-id text
+                      parse-mode disable-web-page-preview reply-markup))
+
 (defn answer-inline-query [bot inline-query-id results &
                           {:keys [cache-time is-personal next-offset]}]
   (req bot "answerInlineQuery"

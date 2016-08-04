@@ -183,29 +183,31 @@
   (string/escape title {\< "&lt;", \> "&gt;", \& "&amp;"}))
 
 (defn sub-rss [bot db url subscriber]
-  (try
-    (if-not (has-row? db "subscribers"
-                      "rss = ? AND subscriber = ?" url subscriber)
-      (let [rss (parse-feed url)
-            title (format-title (:title rss))]
+  (if-not (has-row? db "subscribers"
+                    "rss = ? AND subscriber = ?" url subscriber)
+    (let [msg (tgapi/send-message bot subscriber "拉取 RSS 信息中，请稍候")
+          msg-id (:message_id msg)
+          rss (try (parse-feed url)
+                   (catch Exception e
+                     (tgapi/edit-message-text bot subscriber msg-id
+                                              (format "订阅失败: %s" (.getMessage e)))
+                     (log/warnf "sub-rss: %s, %s" url (.getMessage e))))
+          title (format-title (:title rss))]
+      (when rss
         (jdbc/insert! db :subscribers
                       {:rss url
                        :subscriber subscriber})
-        (tgapi/send-message bot subscriber
-                            (format "《<a href=\"%s\">%s</a>》订阅成功"
-                                    url (escape-title title))
-                            :parse-mode "HTML"
-                            :disable-web-page-preview true)
-        ; 检查是否为第一次订阅
+        (tgapi/edit-message-text bot subscriber msg-id
+                                 (format "《<a href=\"%s\">%s</a>》订阅成功"
+                                         url (escape-title title))
+                                 :parse-mode "HTML"
+                                 :disable-web-page-preview true)
+                                        ; 检查是否为第一次订阅
         (when-not (has-row? db "rss" "url = ?" url)
           (jdbc/insert! db :rss {:url url :title title
                                  :hash_list (string/join " " (gen-hash-list rss))
-                                 :err_count 0})))
-      (tgapi/send-message bot subscriber "订阅失败，已经订阅过的 RSS"))
-    (catch Exception e
-      (tgapi/send-message bot subscriber
-                          (format "订阅失败: %s" (.getMessage e)))
-      (log/warnf "sub-rss: %s, %s" url (.getMessage e)))))
+                                 :err_count 0}))))
+    (tgapi/send-message bot subscriber "订阅失败，已经订阅过的 RSS")))
 
 (defn get-rss-title [db url]
   (-> (jdbc/query db ["SELECT title FROM rss WHERE url = ?" url])
@@ -246,27 +248,29 @@
       (tgapi/send-message bot subscriber "订阅列表为空"))))
 
 (defn handle-update [bot db update]
-  (prn update)
-  (when-let [message (:message update)]
-    (when-let [text (:text message)]
-      (match (tgapi/parse-cmd bot text)
-        ["start" _] (tgapi/send-message bot (get-in message [:chat :id])
-                                        (str "命令列表：\n"
-                                             "/rss - 显示当前订阅的 RSS 列表，可以加 raw 参数显示原始链接\n"
-                                             "/sub - 命令后加要订阅的 RSS 链接，订阅一条 RSS\n"
-                                             "/unsub - 命令后加要退订的 RSS 链接，退订一条 RSS\n"
-                                             "本项目源码：\n"
-                                             "https://github.com/iovxw/tg-rss-bot"))
-        ["rss" raw] (get-sub-list bot db (get-in message [:chat :id])
-                                  (if (= raw "raw") true false))
-        ["sub" nil] (tgapi/send-message bot (get-in message [:chat :id])
-                                        "RSS 不能为空, 请在命令后加入要订阅的 RSS 地址")
-        ["sub" url] (sub-rss bot db url (get-in message [:chat :id]))
-        ["unsub" nil] (tgapi/send-message bot (get-in message [:chat :id])
-                                          "RSS 不能为空, 请在命令后加入要退订的 RSS 地址")
-        ["unsub" url] (unsub-rss bot db url (get-in message [:chat :id]))
-        [cmd arg] (log/warnf "Unknown command: %s, args: %s" cmd arg)
-        :else (log/warnf "Unable to parse command: %s" (:text message))))))
+  (try
+    (when-let [message (:message update)]
+      (when-let [text (:text message)]
+        (match (tgapi/parse-cmd bot text)
+          ["start" _] (tgapi/send-message bot (get-in message [:chat :id])
+                                          (str "命令列表：\n"
+                                               "/rss - 显示当前订阅的 RSS 列表，可以加 raw 参数显示原始链接\n"
+                                               "/sub - 命令后加要订阅的 RSS 链接，订阅一条 RSS\n"
+                                               "/unsub - 命令后加要退订的 RSS 链接，退订一条 RSS\n"
+                                               "本项目源码：\n"
+                                               "https://github.com/iovxw/tg-rss-bot"))
+          ["rss" raw] (get-sub-list bot db (get-in message [:chat :id])
+                                    (if (= raw "raw") true false))
+          ["sub" nil] (tgapi/send-message bot (get-in message [:chat :id])
+                                          "RSS 不能为空, 请在命令后加入要订阅的 RSS 地址")
+          ["sub" url] (sub-rss bot db url (get-in message [:chat :id]))
+          ["unsub" nil] (tgapi/send-message bot (get-in message [:chat :id])
+                                            "RSS 不能为空, 请在命令后加入要退订的 RSS 地址")
+          ["unsub" url] (unsub-rss bot db url (get-in message [:chat :id]))
+          [cmd arg] (log/warnf "Unknown command: %s, args: %s" cmd arg)
+          :else (log/warnf "Unable to parse command: %s" (:text message)))))
+    (catch Exception e
+      (log/error "Unexpected error" e))))
 
 (defn get-all-rss [db]
   (jdbc/query db ["SELECT * FROM rss"]))
