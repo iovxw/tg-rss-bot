@@ -285,10 +285,29 @@
         :when (not (some #(= % nh) hash-list))]
     entry))
 
-(defn make-rss-update-msg [title updates]
-  (reduce #(format "%s\n<a href=\"%s\">%s</a>" %1 (:link %2) (-> (:title %2)
-                                                                 (format-title)
-                                                                 (escape-title)))
+(defn fix-relative-url [host link]
+  (cond
+    (string/starts-with? link "//")
+    (str "http:" link)
+
+    (string/starts-with? link "/")
+    (str host link)
+
+    (string/starts-with? link "./")
+    (str host (string/replace-first link "." ""))
+
+    :else link))
+
+(defn get-host [url]
+  (subs url 0 (string/index-of url "/" 8)))
+
+(defn make-rss-update-msg [url title updates]
+  (reduce #(format "%s\n<a href=\"%s\">%s</a>"
+                   %1
+                   (fix-relative-url (get-host url) (:link %2))
+                   (-> (:title %2)
+                       (format-title)
+                       (escape-title)))
           (format "<b>%s</b>" (escape-title title)) updates))
 
 (defn merge-hash-list [src dst]
@@ -315,7 +334,7 @@
                                        :hash_list (string/join " " (merge-hash-list new-hash-list hash-list))
                                        :err_count 0}
                               ["url = ?" url])
-                (let [message (make-rss-update-msg title updates)]
+                (let [message (make-rss-update-msg url title updates)]
                   (doseq [subscriber (get-subscribers db url)]
                     (send-message bot subscriber message
                                   :parse-mode "HTML"
