@@ -91,3 +91,9 @@
             (if-not-nil-add "cache_time" cache-time)
             (if-not-nil-add "is_personal" is-personal)
             (if-not-nil-add "next_offset" next-offset))))
+
+(defn get-chat [bot chat-id]
+  (req bot "getChat" {"chat_id" chat-id}))
+
+(defn get-chat-admins [bot chat-id]
+  (req bot "getChatAdministrators" {"chat_id" chat-id}))

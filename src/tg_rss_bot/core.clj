@@ -50,7 +50,7 @@
   (let [query (format "SELECT COUNT(*) FROM %s WHERE %s"
                       table query)
         result (jdbc/query db (cons query value))]
-    ; result like ({:count(*) 1})
+    ;; result like ({:count(*) 1})
     (not (zero? ((keyword "count(*)") (first result))))))
 
 (defn split-message [text max-len]
@@ -157,8 +157,8 @@
 
 (defn parse-feed [url]
   (try
-    ; fix ParsingFeedException
-    ; https://github.com/rometools/rome/issues/222
+    ;; fix ParsingFeedException
+    ;; https://github.com/rometools/rome/issues/222
     (let [resp (client/get url {:as :stream
                                 :headers {"User-Agent"
                                           (str "Mozilla/5.0 (X11; Linux x86_64) "
@@ -177,19 +177,21 @@
       (throw (ex-info (.getMessage e) {:type :rss-exception})))))
 
 (defn format-title [title]
-  (string/replace title #"(?:^[\s\n]*)|(?:[\s\n]*$)" ""))
+  (when title
+    (string/replace title #"(?:^[\s\n]*)|(?:[\s\n]*$)" "")))
 
 (defn escape-title [title]
-  (string/escape title {\< "&lt;", \> "&gt;", \& "&amp;"}))
+  (when title
+    (string/escape title {\< "&lt;", \> "&gt;", \& "&amp;"})))
 
-(defn sub-rss [bot db url subscriber]
+(defn sub-rss [bot db chat-id url subscriber]
   (if-not (has-row? db "subscribers"
                     "rss = ? AND subscriber = ?" url subscriber)
-    (let [msg (tgapi/send-message bot subscriber "拉取 RSS 信息中，请稍候")
+    (let [msg (tgapi/send-message bot chat-id "拉取 RSS 信息中，请稍候")
           msg-id (:message_id msg)
           rss (try (parse-feed url)
                    (catch Exception e
-                     (tgapi/edit-message-text bot subscriber msg-id
+                     (tgapi/edit-message-text bot chat-id msg-id
                                               (format "订阅失败: %s" (.getMessage e)))
                      (log/warnf "sub-rss: %s, %s" url (.getMessage e))))
           title (format-title (:title rss))]
@@ -197,78 +199,138 @@
         (jdbc/insert! db :subscribers
                       {:rss url
                        :subscriber subscriber})
-        (tgapi/edit-message-text bot subscriber msg-id
+        (tgapi/edit-message-text bot chat-id msg-id
                                  (format "《<a href=\"%s\">%s</a>》订阅成功"
                                          url (escape-title title))
                                  :parse-mode "HTML"
                                  :disable-web-page-preview true)
-                                        ; 检查是否为第一次订阅
+        ;; 检查是否为第一次订阅
         (when-not (has-row? db "rss" "url = ?" url)
           (jdbc/insert! db :rss {:url url :title title
                                  :hash_list (string/join " " (gen-hash-list rss))
                                  :err_count 0}))))
-    (tgapi/send-message bot subscriber "订阅失败，已经订阅过的 RSS")))
+    (tgapi/send-message bot chat-id "订阅失败，已经订阅过的 RSS")))
 
 (defn get-rss-title [db url]
   (-> (jdbc/query db ["SELECT title FROM rss WHERE url = ?" url])
       (first)
       (:title)))
 
-(defn unsub-rss [bot db url subscriber]
+(defn unsub-rss [bot db chat-id url subscriber]
   (let [result (jdbc/execute! db ["DELETE FROM subscribers
                                    WHERE rss = ? AND subscriber = ?"
                                   url subscriber])]
     (if (>= (first result) 1)
       (let [title (get-rss-title db url)]
-        (tgapi/send-message bot subscriber (format "《<a href=\"%s\">%s</a>》退订成功"
+        (tgapi/send-message bot chat-id (format "《<a href=\"%s\">%s</a>》退订成功"
                                                    url (escape-title title))
                             :parse-mode "HTML"
                             :disable-web-page-preview true)
         (when-not (has-row? db "subscribers" "rss = ?" url)
-          ; 最后一个订阅者退订，删除这个 RSS
+          ;; 最后一个订阅者退订，删除这个 RSS
           (jdbc/delete! db :rss ["url = ?" url])))
-      (tgapi/send-message bot subscriber "退订失败，没有订阅过的 RSS"))))
+      (tgapi/send-message bot chat-id "退订失败，没有订阅过的 RSS"))))
 
-(defn get-sub-list [bot db subscriber raw?]
+(defn get-sub-list [bot db chat-id subscriber raw?]
   (let [result (jdbc/query db ["SELECT rss FROM subscribers
                                 WHERE subscriber = ?" subscriber])]
     (if-not (= (count result) 0)
       (if raw?
-        (send-message bot subscriber
+        (send-message bot chat-id
                       (reduce #(format "%s\n%s: %s" %1
                                        (get-rss-title db (:rss %2)) (:rss %2))
                               "订阅列表:" result)
                       :disable-web-page-preview true)
-        (send-message bot subscriber
+        (send-message bot chat-id
                       (reduce #(format "%s\n<a href=\"%s\">%s</a>" %1 (:rss %2)
                                        (escape-title (get-rss-title db (:rss %2))))
                               "订阅列表:" result)
                       :parse-mode "HTML"
                       :disable-web-page-preview true))
-      (tgapi/send-message bot subscriber "订阅列表为空"))))
+      (tgapi/send-message bot chat-id "订阅列表为空"))))
+
+(defmacro match-args [args & body]
+  `(match (when ~args (string/split ~args #" "))
+     ~@body))
+
+(defn is-channel? [bot channel-id]
+  (try
+    (-> (tgapi/get-chat bot channel-id)
+        :type
+        (= "channel"))
+    (catch Exception e
+      (if (-> (ex-data e)
+              :status
+              (= 400))
+        false ; Bad Request: chat not found
+        (throw e)))))
+
+(defn is-admin? [bot chat-id user-id]
+  (try
+    (some #(= (get-in % [:user :id]) user-id)
+          (tgapi/get-chat-admins bot chat-id))
+    (catch Exception e
+      (if (-> (ex-data e)
+              :status
+              (= 400))
+        false ; Bad Request: Channel members are unavailable
+        (throw e)))))
+
+(defn user-and-bot-is-channel-admin? [bot chat-id channel-id user-id]
+  (if (is-channel? bot channel-id)
+    (if (is-admin? bot channel-id (:id bot))
+      (if (is-admin? bot channel-id user-id)
+        true
+        (do (tgapi/send-message bot chat-id "该命令只能由 Channel 管理员使用")
+            false))
+      (do (tgapi/send-message bot chat-id "请先将本 Bot 设为该 Channel 管理员")
+          false))
+    (do (tgapi/send-message bot chat-id "目标需为 Channel")
+        false)))
 
 (defn handle-update [bot db update]
   (try
     (when-let [message (:message update)]
       (when-let [text (:text message)]
-        (match (tgapi/parse-cmd bot text)
-          ["start" _] (tgapi/send-message bot (get-in message [:chat :id])
-                                          (str "命令列表：\n"
-                                               "/rss - 显示当前订阅的 RSS 列表，可以加 raw 参数显示原始链接\n"
-                                               "/sub - 命令后加要订阅的 RSS 链接，订阅一条 RSS\n"
-                                               "/unsub - 命令后加要退订的 RSS 链接，退订一条 RSS\n"
-                                               "本项目源码：\n"
-                                               "https://github.com/iovxw/tg-rss-bot"))
-          ["rss" raw] (get-sub-list bot db (get-in message [:chat :id])
-                                    (if (= raw "raw") true false))
-          ["sub" nil] (tgapi/send-message bot (get-in message [:chat :id])
-                                          "RSS 不能为空, 请在命令后加入要订阅的 RSS 地址")
-          ["sub" url] (sub-rss bot db url (get-in message [:chat :id]))
-          ["unsub" nil] (tgapi/send-message bot (get-in message [:chat :id])
-                                            "RSS 不能为空, 请在命令后加入要退订的 RSS 地址")
-          ["unsub" url] (unsub-rss bot db url (get-in message [:chat :id]))
-          [cmd arg] (log/warnf "Unknown command: %s, args: %s" cmd arg)
-          :else (log/warnf "Unable to parse command: %s" (:text message)))))
+        (let [[cmd args] (tgapi/parse-cmd bot text)]
+          (case cmd
+            "start" (tgapi/send-message bot (get-in message [:chat :id])
+                                        (str "命令列表：\n"
+                                             "/rss - 显示当前订阅的 RSS 列表，可以加 raw 参数显示原始链接\n"
+                                             "/sub - 命令后加要订阅的 RSS 链接，订阅一条 RSS\n"
+                                             "/unsub - 命令后加要退订的 RSS 链接，退订一条 RSS\n"
+                                             "本项目源码：\n"
+                                             "https://github.com/iovxw/tg-rss-bot"))
+            "rss" (match-args args
+                    nil (get-sub-list bot db (get-in message [:chat :id]) (get-in message [:chat :id]) false)
+                    ["raw"] (get-sub-list bot db (get-in message [:chat :id]) (get-in message [:chat :id]) true)
+                    [channel-id] (when (user-and-bot-is-channel-admin?
+                                        bot (get-in message [:chat :id])
+                                        channel-id (get-in message [:from :id]))
+                                   (get-sub-list bot db (get-in message [:chat :id]) channel-id false))
+                    [channel-id "raw"] (when (user-and-bot-is-channel-admin?
+                                              bot (get-in message [:chat :id])
+                                              channel-id (get-in message [:from :id]))
+                                         (get-sub-list bot db (get-in message [:chat :id]) channel-id true))
+                    :else (tgapi/send-message bot (get-in message [:chat :id])
+                                              "使用方法： /rss <Channel ID> <raw>"))
+            "sub" (match-args args
+                    [url] (sub-rss bot db (get-in message [:chat :id]) url (get-in message [:chat :id]))
+                    [channel-id url] (when (user-and-bot-is-channel-admin?
+                                            bot (get-in message [:chat :id])
+                                            channel-id (get-in message [:from :id]))
+                                       (sub-rss bot db (get-in message [:chat :id]) url channel-id))
+                    :else (tgapi/send-message bot (get-in message [:chat :id])
+                                              "使用方法： /sub <Channel ID> [RSS URL]"))
+            "unsub" (match-args args
+                      [url] (unsub-rss bot db (get-in message [:chat :id]) url (get-in message [:chat :id]))
+                      [channel-id url] (when (user-and-bot-is-channel-admin?
+                                              bot (get-in message [:chat :id])
+                                              channel-id (get-in message [:from :id]))
+                                         (unsub-rss bot db (get-in message [:chat :id]) url channel-id))
+                      :else (tgapi/send-message bot (get-in message [:chat :id])
+                                                "使用方法： /unsub <Channel ID> [RSS URL]"))
+            (log/warnf "Unknown command: %s, args: %s" cmd args)))))
     (catch Exception e
       (log/error "Unexpected error" e))))
 
