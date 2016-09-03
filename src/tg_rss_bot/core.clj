@@ -21,7 +21,7 @@
                       err_count INTEGER)"])
   (jdbc/execute! db ["CREATE TABLE IF NOT EXISTS subscribers (
                       rss        VARCHAR,
-                      subscriber INTEGER)"]))
+                      subscriber VARCHAR)"]))
 
 (defn updates-seq
   ([bot] (updates-seq bot 0))
