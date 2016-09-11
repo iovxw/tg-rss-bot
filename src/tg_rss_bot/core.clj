@@ -277,16 +277,19 @@
         (throw e)))))
 
 (defn user-and-bot-is-channel-admin? [bot chat-id channel-id user-id]
-  (if (is-channel? bot channel-id)
-    (if (is-admin? bot channel-id (:id bot))
-      (if (is-admin? bot channel-id user-id)
-        true
-        (do (tgapi/send-message bot chat-id "该命令只能由 Channel 管理员使用")
+  (let [msg (tgapi/send-message bot chat-id "正在验证 Channel")
+        msg-id (:message_id msg)]
+    (if (is-channel? bot channel-id)
+      (if (is-admin? bot channel-id (:id bot))
+        (if (is-admin? bot channel-id user-id)
+          (do (tgapi/edit-message-text bot chat-id msg-id "Channel 验证完成")
+              true)
+          (do (tgapi/edit-message-text bot chat-id msg-id "该命令只能由 Channel 管理员使用")
+              false))
+        (do (tgapi/edit-message-text bot chat-id msg-id "请先将本 Bot 设为该 Channel 管理员")
             false))
-      (do (tgapi/send-message bot chat-id "请先将本 Bot 设为该 Channel 管理员")
-          false))
-    (do (tgapi/send-message bot chat-id "目标需为 Channel")
-        false)))
+      (do (tgapi/edit-message-text bot chat-id msg-id "目标需为 Channel")
+          false))))
 
 (defn handle-update [bot db update]
   (try
