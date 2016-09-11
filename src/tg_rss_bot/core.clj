@@ -222,13 +222,13 @@
                                   url subscriber])]
     (if (>= (first result) 1)
       (let [title (get-rss-title db url)]
-        (tgapi/send-message bot chat-id (format "《<a href=\"%s\">%s</a>》退订成功"
-                                                   url (escape-title title))
-                            :parse-mode "HTML"
-                            :disable-web-page-preview true)
         (when-not (has-row? db "subscribers" "rss = ?" url)
           ;; 最后一个订阅者退订，删除这个 RSS
-          (jdbc/delete! db :rss ["url = ?" url])))
+          (jdbc/delete! db :rss ["url = ?" url]))
+        (tgapi/send-message bot chat-id (format "《<a href=\"%s\">%s</a>》退订成功"
+                                                url (escape-title title))
+                            :parse-mode "HTML"
+                            :disable-web-page-preview true))
       (tgapi/send-message bot chat-id "退订失败，没有订阅过的 RSS"))))
 
 (defn get-sub-list [bot db chat-id subscriber raw?]
@@ -401,9 +401,14 @@
                               ["url = ?" url])
                 (let [message (make-rss-update-msg url title updates)]
                   (doseq [subscriber (get-subscribers db url)]
-                    (send-message bot subscriber message
-                                  :parse-mode "HTML"
-                                  :disable-web-page-preview true)))))
+                    (try
+                      (send-message bot subscriber message
+                                    :parse-mode "HTML"
+                                    :disable-web-page-preview true)
+                      (catch Exception e
+                        (when (-> e ex-data :status (= 400))
+                          (unsub-rss bot db subscriber url subscriber)) ; 强制退订
+                        (throw e)))))))
             (catch Exception e
               (let [msg (.getMessage e)
                     url (:url row)
@@ -414,11 +419,16 @@
                   (if (< err-count 1440)
                     (jdbc/update! db :rss {:err_count err-count} ["url = ?" url])
                     (do (doseq [subscriber (get-subscribers db url)]
-                          (send-message bot subscriber
-                                        (format "《<a href=\"%s\">%s</a>》已经连续五天拉取出错（%s），可能已经关闭，请取消订阅"
-                                                url (escape-title title) msg)
-                                        :parse-mode "HTML"
-                                        :disable-web-page-preview true))
+                          (try
+                            (send-message bot subscriber
+                                          (format "《<a href=\"%s\">%s</a>》已经连续五天拉取出错（%s），可能已经关闭，请取消订阅"
+                                                  url (escape-title title) msg)
+                                          :parse-mode "HTML"
+                                          :disable-web-page-preview true)
+                            (catch Exception e
+                              (when (-> e ex-data :status (= 400))
+                                (unsub-rss bot db subscriber url subscriber)) ; 强制退订
+                              (throw e))))
                         (jdbc/update! db :rss {:err_count 0}
                                       ["url = ?" url])))))))))
       (Thread/sleep 300000) ; 5min
