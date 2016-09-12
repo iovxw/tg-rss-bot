@@ -35,17 +35,6 @@
                       offset)] ; updates 数量为 0，可能获取失败，使用旧的 offset
      (lazy-cat updates (updates-seq bot new-offset)))))
 
-(defn bytes-hash-to-str [hash-bytes]
-  (.toString (java.math.BigInteger. 1 hash-bytes) 16))
-
-(defn get-hash [data]
-  (->> (.getBytes data)
-       (.digest (java.security.MessageDigest/getInstance "SHA-1"))
-       (bytes-hash-to-str)))
-
-(defn gen-hash-list [rss]
-  (map #(get-hash (str (:link %) (:title %))) (:entries rss)))
-
 (defn has-row? [db table query & value]
   (let [query (format "SELECT COUNT(*) FROM %s WHERE %s"
                       table query)
@@ -184,6 +173,12 @@
   (when title
     (string/escape title {\< "&lt;", \> "&gt;", \& "&amp;"})))
 
+(defn entry-hash [entry]
+  (hash (str (:link entry) (:title entry))))
+
+(defn gen-rss-hash-list [rss]
+  (string/join " " (map entry-hash (:entries rss))))
+
 (defn sub-rss [bot db chat-id url subscriber]
   (if-not (has-row? db "subscribers"
                     "rss = ? AND subscriber = ?" url subscriber)
@@ -207,7 +202,7 @@
         ;; 检查是否为第一次订阅
         (when-not (has-row? db "rss" "url = ?" url)
           (jdbc/insert! db :rss {:url url :title title
-                                 :hash_list (string/join " " (gen-hash-list rss))
+                                 :hash_list (gen-rss-hash-list rss)
                                  :err_count 0}))))
     (tgapi/send-message bot chat-id "订阅失败，已经订阅过的 RSS")))
 
@@ -345,11 +340,6 @@
                                 WHERE rss = ?" rss])]
     (map #(:subscriber %) result)))
 
-(defn filter-updates [hash-list new-hash-list entries]
-  (for [[nh entry] (zipmap new-hash-list entries)
-        :when (not (some #(= % nh) hash-list))]
-    entry))
-
 (defn fix-relative-url [host link]
   (cond
     (string/starts-with? link "//")
@@ -375,12 +365,23 @@
                        (escape-title)))
           (format "<b>%s</b>" (escape-title title)) updates))
 
-(defn merge-hash-list [src dst]
-  (let [max-len (* (count src) 2)
-        result (vec (distinct (concat src dst)))]
-    (if (> (count result) max-len)
-      (subvec result 0 max-len)
-      result)))
+(defn filter-updates [hash-list entries]
+  (let [hash-list (apply hash-set hash-list)] ; convert to hash-set for (contains?)
+    (remove #(contains? hash-list (entry-hash %)) entries)))
+
+(defn update-rss-hash-list [old-hash-list new-entries rss]
+  (let [hash-list (map entry-hash new-entries)
+        max-size (* (count (:entries rss)) 2)
+        result (concat hash-list old-hash-list)
+        result (if (> (count result) max-size)
+                 (subvec result 0 max-size)
+                 result)]
+    (string/join " " result)))
+
+(defn parse-int [s]
+  (try (Integer. s)
+       (catch Exception _
+         nil)))
 
 (defn pull-rss-updates [bot db]
   (future
@@ -389,14 +390,13 @@
         (future
           (try
             (let [url (:url row)
-                  hash-list (string/split (:hash_list row) #" ")
+                  hash-list (keep parse-int (string/split (:hash_list row) #" "))
                   rss (parse-feed url)
-                  new-hash-list (gen-hash-list rss)
                   title (format-title (:title rss))
-                  updates (filter-updates hash-list new-hash-list (:entries rss))]
+                  updates (filter-updates hash-list (:entries rss))]
               (when (not= (count updates) 0)
                 (jdbc/update! db :rss {:title title
-                                       :hash_list (string/join " " (merge-hash-list new-hash-list hash-list))
+                                       :hash_list (update-rss-hash-list hash-list updates rss)
                                        :err_count 0}
                               ["url = ?" url])
                 (let [message (make-rss-update-msg url title updates)]
