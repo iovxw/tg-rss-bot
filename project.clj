@@ -1,4 +1,4 @@
-(defproject tg-rss-bot "0.5.0"
+(defproject tg-rss-bot "0.5.1"
   :description "Yet another RSS bot for Telegram"
   :url "https://github.com/iovxw/tg-rss-bot"
   :license {:name "The MIT License"

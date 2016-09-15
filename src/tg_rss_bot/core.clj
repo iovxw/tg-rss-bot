@@ -374,7 +374,7 @@
         max-size (* (count (:entries rss)) 2)
         result (concat hash-list old-hash-list)
         result (if (> (count result) max-size)
-                 (subvec result 0 max-size)
+                 (take max-size result)
                  result)]
     (string/join " " result)))
 
@@ -414,7 +414,7 @@
                     url (:url row)
                     title (:title row)
                     err-count (inc (:err_count row))]
-                (log/warnf "Pull RSS updates fail: %s\n%s" url msg)
+                (log/errorf e "Pull RSS updates fail: %s" url)
                 (when (= (:type (ex-data e)) :rss-exception)
                   (if (< err-count 1440)
                     (jdbc/update! db :rss {:err_count err-count} ["url = ?" url])
