@@ -359,7 +359,7 @@
 (defn make-rss-update-msg [url title updates]
   (reduce #(format "%s\n<a href=\"%s\">%s</a>"
                    %1
-                   (fix-relative-url (get-host url) (:link %2))
+                   (fix-relative-url (get-host url) (or (:link %2) (:uri %2) ""))
                    (-> (:title %2)
                        (format-title)
                        (escape-title)))
