@@ -6,6 +6,7 @@
             [clj-http.client :as client]
             [clojure.core.match :refer [match]]
             [feedparser-clj.core :as feedparser])
+  (:import [java.io InputStreamReader BufferedReader ByteArrayInputStream])
   (:gen-class))
 
 (def db
@@ -144,16 +145,27 @@
    525 "SSL Handshake Failed"
    526 "Invalid SSL Certificate"})
 
+(defn remove-unserializable-chars [b]
+  (let [declaration (.readLine (BufferedReader. (InputStreamReader. (ByteArrayInputStream. b)
+                                                                    "UTF-8")))
+        encoding (or (second (re-find #"<?.*encoding=\"([^\"]+)\".*?>" declaration))
+                     "UTF-8")
+        s (String. b encoding)
+        r (string/replace s #"[\x00-\x08\x0B-\x0C\x0E-\x1F]" "")
+        b (.getBytes r encoding)]
+    (ByteArrayInputStream. b)))
+
 (defn parse-feed [url]
   (try
     ;; fix ParsingFeedException
     ;; https://github.com/rometools/rome/issues/222
-    (let [resp (client/get url {:as :stream
+    (let [resp (client/get url {:as :byte-array
                                 :headers {"User-Agent"
                                           (str "Mozilla/5.0 (X11; Linux x86_64) "
                                                "AppleWebKit/537.36 (KHTML, like Gecko) "
                                                "Chrome/52.0.2743.82 Safari/537.36")}})]
-      (feedparser/parse-feed (resp :body)))
+      (with-open [stream (remove-unserializable-chars (:body resp))]
+        (feedparser/parse-feed stream)))
     (catch java.net.UnknownHostException _
       (throw (ex-info "未知服务器地址" {:type :rss-exception})))
     (catch clojure.lang.ExceptionInfo e
