@@ -395,7 +395,7 @@
        (catch Exception _
          nil)))
 
-(defn pull-rss-updates [bot db]
+(defn fetch-rss-updates [bot db]
   (future
     (loop []
       (doseq [row (get-all-rss db)]
@@ -419,6 +419,7 @@
                                     :disable-web-page-preview true)
                       (catch Exception e
                         (when (-> e ex-data :status (= 400))
+                          (log/errorf e "Send RSS updates to %s failed" subscriber)
                           (unsub-rss bot db subscriber url subscriber)) ; 强制退订
                         (throw e)))))))
             (catch Exception e
@@ -426,7 +427,7 @@
                     url (:url row)
                     title (:title row)
                     err-count (inc (:err_count row))]
-                (log/errorf e "Pull RSS updates fail: %s" url)
+                (log/errorf e "Fetch RSS updates failed: %s" url)
                 (when (= (:type (ex-data e)) :rss-exception)
                   (if (< err-count 1440)
                     (jdbc/update! db :rss {:err_count err-count} ["url = ?" url])
@@ -439,6 +440,7 @@
                                           :disable-web-page-preview true)
                             (catch Exception e
                               (when (-> e ex-data :status (= 400))
+                                (log/errorf e "Send RSS fetch error to %s failed" subscriber)
                                 (unsub-rss bot db subscriber url subscriber)) ; 强制退订
                               (throw e))))
                         (jdbc/update! db :rss {:err_count 0}
@@ -449,7 +451,7 @@
 (defn -main [bot-key]
   (init-db db)
   (let [bot (tgapi/new-bot bot-key)]
-    (pull-rss-updates bot db)
+    (fetch-rss-updates bot db)
     (loop [updates (updates-seq bot)]
       (future (handle-update bot db (first updates)))
       (recur (rest updates)))))
