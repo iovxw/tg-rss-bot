@@ -418,10 +418,10 @@
                                     :parse-mode "HTML"
                                     :disable-web-page-preview true)
                       (catch Exception e
-                        (when (-> e ex-data :status (= 400))
-                          (log/errorf e "Send RSS updates to %s failed" subscriber)
-                          (unsub-rss bot db subscriber url subscriber)) ; 强制退订
-                        (throw e)))))))
+                        (if (-> e ex-data :status (or (= 400) (= 403)))
+                          (do (log/errorf e "Send RSS updates to %s failed" subscriber)
+                              (try (unsub-rss bot db subscriber url subscriber))) ; 强制退订
+                          (log/errorf e "Unexpected message sending error %s" subscriber)))))
             (catch Exception e
               (let [msg (.getMessage e)
                     url (:url row)
@@ -439,10 +439,10 @@
                                           :parse-mode "HTML"
                                           :disable-web-page-preview true)
                             (catch Exception e
-                              (when (-> e ex-data :status (= 400))
-                                (log/errorf e "Send RSS fetch error to %s failed" subscriber)
-                                (unsub-rss bot db subscriber url subscriber)) ; 强制退订
-                              (throw e))))
+                              (if (-> e ex-data :status (or (= 400) (= 403)))
+                                (do (log/errorf e "Send RSS fetch error to %s failed" subscriber)
+                                    (try (unsub-rss bot db subscriber url subscriber))) ; 强制退订
+                                (log/errorf e "Unexpected message sending error %s" subscriber)))))
                         (jdbc/update! db :rss {:err_count 0}
                                       ["url = ?" url])))))))))
       (Thread/sleep 300000) ; 5min
