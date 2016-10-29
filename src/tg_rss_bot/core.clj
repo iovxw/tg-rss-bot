@@ -421,7 +421,7 @@
                         (if (-> e ex-data :status (or (= 400) (= 403)))
                           (do (log/errorf e "Send RSS updates to %s failed" subscriber)
                               (try (unsub-rss bot db subscriber url subscriber))) ; 强制退订
-                          (log/errorf e "Unexpected message sending error %s" subscriber)))))
+                          (log/errorf e "Unexpected message sending error %s" subscriber))))))))
             (catch Exception e
               (let [msg (.getMessage e)
                     url (:url row)
