@@ -27,8 +27,7 @@
 (defn updates-seq
   ([bot] (updates-seq bot 0))
   ([bot offset]
-   (Thread/sleep 500)
-   (let [updates (try (tgapi/get-updates bot offset)
+   (let [updates (try (tgapi/get-updates bot :offset offset :timeout 120)
                       (catch Exception e
                         (log/warnf "Get updates fail: %s" (.getMessage e)) []))
          new-offset (if (not= (count updates) 0)

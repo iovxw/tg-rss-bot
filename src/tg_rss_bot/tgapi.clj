@@ -9,10 +9,10 @@
    (let [resp (if data
                 (client/post url {:content-type :json
                                   :body (json/write-str data)
-                                  :socket-timeout 5000
+                                  :socket-timeout 300000 ; 5 minute
                                   :conn-timeout 5000
                                   :throw-exceptions false})
-                (client/get url {:socket-timeout 5000
+                (client/get url {:socket-timeout 300000 ; 5 minute
                                  :conn-timeout 5000
                                  :throw-exceptions false}))
          code (resp :status)]
@@ -41,15 +41,17 @@
 (defn parse-cmd [bot text]
   (vec (rest (re-find (bot :cmd-reg) text))))
 
-(defn get-updates
-  ([bot] (get-updates bot 0))
-  ([bot offset]
-   (req bot "getUpdates" {"offset" offset})))
-
 (defn- if-not-nil-add [k v m]
   (if v
     (assoc m k v)
     m))
+
+(defn get-updates [bot & {:keys [offset limit timeout]}]
+  (req bot "getUpdates"
+       (->> {}
+            (if-not-nil-add "offset" offset)
+            (if-not-nil-add "limit" limit)
+            (if-not-nil-add "timeout" timeout))))
 
 (defn send-message [bot chat-id text &
                     {:keys [parse-mode disable-web-page-preview
