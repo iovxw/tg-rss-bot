@@ -147,7 +147,7 @@
 (defn remove-unserializable-chars [b]
   (let [declaration (.readLine (BufferedReader. (InputStreamReader. (ByteArrayInputStream. b)
                                                                     "UTF-8")))
-        encoding (or (second (re-find #"<?.*encoding=\"([^\"]+)\".*?>" declaration))
+        encoding (or (second (re-find #"^<\?[^>]*encoding=[\'\"]([^\"\'>]+)[\'\"][^>]*\?>" declaration))
                      "UTF-8")
         s (String. b encoding)
         r (string/replace s #"[\x00-\x08\x0B-\x0C\x0E-\x1F]" "")
