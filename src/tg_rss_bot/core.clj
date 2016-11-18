@@ -22,7 +22,7 @@
                       err_count INTEGER)"])
   (jdbc/execute! db ["CREATE TABLE IF NOT EXISTS subscribers (
                       rss        VARCHAR,
-                      subscriber VARCHAR)"]))
+                      subscriber INTEGER)"]))
 
 (defn updates-seq
   ([bot] (updates-seq bot 0))
@@ -259,43 +259,30 @@
   `(match (when ~args (string/split ~args #" "))
      ~@body))
 
-(defn is-channel? [bot channel-id]
-  (try
-    (-> (tgapi/get-chat bot channel-id)
-        :type
-        (= "channel"))
-    (catch Exception e
-      (if (-> (ex-data e)
-              :status
-              (= 400))
-        false ; Bad Request: chat not found
-        (throw e)))))
+(defmacro if-not-let
+  ([bindings then]
+   `(if-not-let ~bindings nil ~then))
+  ([bindings then else & oldform]
+   `(if-let ~bindings ~else ~then ~@oldform)))
 
-(defn is-admin? [bot chat-id user-id]
-  (try
-    (some #(= (get-in % [:user :id]) user-id)
-          (tgapi/get-chat-admins bot chat-id))
-    (catch Exception e
-      (if (-> (ex-data e)
-              :status
-              (= 400))
-        false ; Bad Request: Channel members are unavailable
-        (throw e)))))
-
-(defn user-and-bot-is-channel-admin? [bot chat-id channel-id user-id]
+(defn verify-channel [bot chat-id channel-id user-id]
   (let [msg (tgapi/send-message bot chat-id "正在验证 Channel")
         msg-id (:message_id msg)]
-    (if (is-channel? bot channel-id)
-      (if (is-admin? bot channel-id (:id bot))
-        (if (is-admin? bot channel-id user-id)
-          (do (tgapi/edit-message-text bot chat-id msg-id "Channel 验证完成")
-              true)
-          (do (tgapi/edit-message-text bot chat-id msg-id "该命令只能由 Channel 管理员使用")
-              false))
-        (do (tgapi/edit-message-text bot chat-id msg-id "请先将本 Bot 设为该 Channel 管理员")
-            false))
-      (do (tgapi/edit-message-text bot chat-id msg-id "目标需为 Channel")
-          false))))
+    (if-not-let [channel-info (try (tgapi/get-chat bot channel-id)
+                                   (catch Exception e ; Bad Request: chat not found
+                                     (when (-> (ex-data e) :status (not= 400)) (throw e))))]
+      (do (tgapi/edit-message-text bot chat-id msg-id "无法找到目标 Channel") nil)
+      (if-not (= (:type channel-info) "channel")
+        (do (tgapi/edit-message-text bot chat-id msg-id "目标需为 Channel") nil)
+        (if-not-let [channel-admins (try (tgapi/get-chat-admins bot channel-id)
+                                         (catch Exception e ; Bad Request: Channel members are unavailable
+                                           (when (-> (ex-data e) :status (not= 400)) (throw e))))]
+          (do (tgapi/edit-message-text bot chat-id msg-id "请先将本 Bot 加入目标 Channel 并设为管理员") nil)
+          (if-not (some #(= (get-in % [:user :id]) (:id bot)) channel-admins)
+            (do (tgapi/edit-message-text bot chat-id msg-id "请将本 Bot 设为目标 Channel 管理员") nil)
+            (if-not (some #(= (get-in % [:user :id]) user-id) channel-admins)
+              (do (tgapi/edit-message-text bot chat-id msg-id "该命令只能由 Channel 管理员使用") nil)
+              (:id channel-info))))))))
 
 (defn handle-update [bot db update]
   (try
@@ -313,29 +300,25 @@
             "rss" (match-args args
                     nil (get-sub-list bot db (get-in message [:chat :id]) (get-in message [:chat :id]) false)
                     ["raw"] (get-sub-list bot db (get-in message [:chat :id]) (get-in message [:chat :id]) true)
-                    [channel-id] (when (user-and-bot-is-channel-admin?
-                                        bot (get-in message [:chat :id])
-                                        channel-id (get-in message [:from :id]))
-                                   (get-sub-list bot db (get-in message [:chat :id]) channel-id false))
-                    [channel-id "raw"] (when (user-and-bot-is-channel-admin?
-                                              bot (get-in message [:chat :id])
-                                              channel-id (get-in message [:from :id]))
+                    [channel-id] (if-let [channel-id (verify-channel bot (get-in message [:chat :id])
+                                                                     channel-id (get-in message [:from :id]))]
+                      (get-sub-list bot db (get-in message [:chat :id]) channel-id false))
+                    [channel-id "raw"] (if-let [channel-id (verify-channel bot (get-in message [:chat :id])
+                                                                           channel-id (get-in message [:from :id]))]
                                          (get-sub-list bot db (get-in message [:chat :id]) channel-id true))
                     :else (tgapi/send-message bot (get-in message [:chat :id])
                                               "使用方法： /rss <Channel ID> <raw>"))
             "sub" (match-args args
                     [url] (sub-rss bot db (get-in message [:chat :id]) url (get-in message [:chat :id]))
-                    [channel-id url] (when (user-and-bot-is-channel-admin?
-                                            bot (get-in message [:chat :id])
-                                            channel-id (get-in message [:from :id]))
+                    [channel-id url] (if-let [channel-id (verify-channel bot (get-in message [:chat :id])
+                                                                         channel-id (get-in message [:from :id]))]
                                        (sub-rss bot db (get-in message [:chat :id]) url channel-id))
                     :else (tgapi/send-message bot (get-in message [:chat :id])
                                               "使用方法： /sub <Channel ID> [RSS URL]"))
             "unsub" (match-args args
                       [url] (unsub-rss bot db (get-in message [:chat :id]) url (get-in message [:chat :id]))
-                      [channel-id url] (when (user-and-bot-is-channel-admin?
-                                              bot (get-in message [:chat :id])
-                                              channel-id (get-in message [:from :id]))
+                      [channel-id url] (if-let [channel-id (verify-channel bot (get-in message [:chat :id])
+                                                                           channel-id (get-in message [:from :id]))]
                                          (unsub-rss bot db (get-in message [:chat :id]) url channel-id))
                       :else (tgapi/send-message bot (get-in message [:chat :id])
                                                 "使用方法： /unsub <Channel ID> [RSS URL]"))
