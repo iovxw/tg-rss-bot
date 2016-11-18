@@ -6,7 +6,8 @@
             [clj-http.client :as client]
             [clojure.core.match :refer [match]]
             [feedparser-clj.core :as feedparser])
-  (:import [java.io InputStreamReader BufferedReader ByteArrayInputStream])
+  (:import [java.io InputStreamReader BufferedReader ByteArrayInputStream]
+           [java.net URLEncoder])
   (:gen-class))
 
 (def db
@@ -198,7 +199,11 @@
           rss (try (parse-feed url)
                    (catch Exception e
                      (tgapi/edit-message-text bot chat-id msg-id
-                                              (format "订阅失败: %s" (.getMessage e)))
+                                              (format "订阅失败: %s\n请 [检查 RSS 合法性](http://www.feedvalidator.org/check.cgi?url=%s)"
+                                                      (.getMessage e)
+                                                      (URLEncoder/encode url "UTF-8"))
+                                              :parse-mode "Markdown"
+                                              :disable-web-page-preview true)
                      (log/warnf "sub-rss: %s, %s" url (.getMessage e))))
           title (format-title (:title rss))]
       (when rss
