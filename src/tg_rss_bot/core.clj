@@ -199,7 +199,10 @@
           rss (try (parse-feed url)
                    (catch Exception e
                      (tgapi/edit-message-text bot chat-id msg-id
-                                              (format "订阅失败: %s\n请 [检查 RSS 合法性](http://www.feedvalidator.org/check.cgi?url=%s)"
+                                              (format (str "订阅失败: %s\n"
+                                                           "请 [检查 RSS 合法性](http://www.feedvalidator.org/check.cgi?url=%s)\n"
+                                                           "注: 可使用 [Feedburner](https://feedburner.com/) 之类服务来解决网络问题\n"
+                                                           "如有任何疑问请联系作者 @iovxw")
                                                       (.getMessage e)
                                                       (URLEncoder/encode url "UTF-8"))
                                               :parse-mode "Markdown"
