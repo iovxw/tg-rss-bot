@@ -335,17 +335,16 @@
     (map #(:subscriber %) result)))
 
 (defn fix-relative-url [host link]
-  (cond
-    (string/starts-with? link "//")
-    (str "http:" link)
+  (condp #(string/starts-with? %2 %1) link
+    "//" (str "http:" link)
 
-    (string/starts-with? link "/")
-    (str host link)
+    "/" (str host link)
 
-    (string/starts-with? link "./")
-    (str host (string/replace-first link "." ""))
+    "./" (str host (string/replace-first link "." ""))
 
-    :else link))
+    (if-not (string/blank? link)
+      link
+      host)))
 
 (defn get-host [url]
   (subs url 0 (string/index-of url "/" 8)))
@@ -353,7 +352,9 @@
 (defn make-rss-update-msg [url title updates]
   (reduce #(format "%s\n<a href=\"%s\">%s</a>"
                    %1
-                   (fix-relative-url (get-host url) (or (:link %2) (:uri %2) ""))
+                   (fix-relative-url (get-host url) (cond (not (string/blank? (:link %2))) (:link %2)
+                                                          (not (string/blank? (:uri %2))) (:uri %2)
+                                                          :else ""))
                    (-> (:title %2)
                        (format-title)
                        (escape-title)))
@@ -400,7 +401,7 @@
                                     :parse-mode "HTML"
                                     :disable-web-page-preview true)
                       (catch Exception e
-                        (if (-> e ex-data :status (or (= 400) (= 403)))
+                        (if (-> e ex-data :status (#(or (= % 400) (= % 403))))
                           (do (log/errorf e "Send RSS updates to %s failed" subscriber)
                               (try (unsub-rss bot db subscriber url subscriber))) ; 强制退订
                           (log/errorf e "Unexpected message sending error %s" subscriber))))))))
@@ -421,7 +422,7 @@
                                           :parse-mode "HTML"
                                           :disable-web-page-preview true)
                             (catch Exception e
-                              (if (-> e ex-data :status (or (= 400) (= 403)))
+                              (if (-> e ex-data :status (#(or (= % 400) (= % 403))))
                                 (do (log/errorf e "Send RSS fetch error to %s failed" subscriber)
                                     (try (unsub-rss bot db subscriber url subscriber))) ; 强制退订
                                 (log/errorf e "Unexpected message sending error %s" subscriber)))))
