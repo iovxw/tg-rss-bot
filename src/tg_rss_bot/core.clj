@@ -397,22 +397,25 @@
                   rss (parse-feed url)
                   title (format-title (:title rss))
                   updates (filter-updates hash-list (:entries rss))]
-              (when (not= (count updates) 0)
-                (jdbc/update! db :rss {:title title
-                                       :hash_list (update-rss-hash-list hash-list updates rss)
-                                       :err_count 0}
-                              ["url = ?" url])
-                (let [message (make-rss-update-msg url title updates)]
-                  (doseq [subscriber (get-subscribers db url)]
-                    (try
-                      (send-message bot subscriber message
-                                    :parse-mode "HTML"
-                                    :disable-web-page-preview true)
-                      (catch Exception e
-                        (if (-> e ex-data :status (#(or (= % 400) (= % 403))))
-                          (do (log/errorf e "Send RSS updates to %s failed" subscriber)
-                              (try (unsub-rss bot db subscriber url subscriber))) ; 强制退订
-                          (log/errorf e "Unexpected message sending error %s" subscriber))))))))
+              (if (not= (count updates) 0)
+                (do (jdbc/update! db :rss {:title title
+                                           :hash_list (update-rss-hash-list hash-list updates rss)
+                                           :err_count 0}
+                                  ["url = ?" url])
+                    (let [message (make-rss-update-msg url title updates)]
+                      (doseq [subscriber (get-subscribers db url)]
+                        (try
+                          (send-message bot subscriber message
+                                        :parse-mode "HTML"
+                                        :disable-web-page-preview true)
+                          (catch Exception e
+                            (if (-> e ex-data :status (#(or (= % 400) (= % 403))))
+                              (do (log/errorf e "Send RSS updates to %s failed" subscriber)
+                                  (try (unsub-rss bot db subscriber url subscriber))) ; 强制退订
+                              (log/errorf e "Unexpected message sending error %s" subscriber)))))))
+                (when (> (:err_count row) 0)
+                  ;; reset err_count
+                  (jdbc/update! db :rss {:err_count 0} ["url = ?" url]))))
             (catch Exception e
               (let [msg (.getMessage e)
                     url (:url row)
