@@ -200,9 +200,8 @@
                    (catch Exception e
                      (tgapi/edit-message-text bot chat-id msg-id
                                               (format (str "订阅失败: %s\n"
-                                                           "请 [检查 RSS 合法性](http://www.feedvalidator.org/check.cgi?url=%s)\n"
-                                                           "注: 可使用 [Feedburner](https://feedburner.com/) 之类服务来解决网络问题\n"
-                                                           "如有任何疑问请联系作者 @iovxw")
+                                                           "请 [检查 RSS 合法性](http://www.feedvalidator.org/check.cgi?url=%s) "
+                                                           "(更多帮助请查看 /start)")
                                                       (.getMessage e)
                                                       (URLEncoder/encode url "UTF-8"))
                                               :parse-mode "Markdown"
@@ -304,7 +303,10 @@
                                              "/sub - 命令后加要订阅的 RSS 链接，订阅一条 RSS\n"
                                              "/unsub - 命令后加要退订的 RSS 链接，退订一条 RSS\n"
                                              "本项目源码：\n"
-                                             "https://github.com/iovxw/tg-rss-bot"))
+                                             "https://github.com/iovxw/tg-rss-bot\n"
+                                             "注: 可使用 [Feedburner](https://feedburner.com/) 之类服务来解决网络问题\n"
+                                             "如有任何疑问请联系作者 @iovxw")
+                                        :parse-mode "Markdown")
             "rss" (match-args args
                     nil (get-sub-list bot db (get-in message [:chat :id]) (get-in message [:chat :id]) false)
                     ["raw"] (get-sub-list bot db (get-in message [:chat :id]) (get-in message [:chat :id]) true)
