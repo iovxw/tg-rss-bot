@@ -272,9 +272,21 @@
   ([bindings then else & oldform]
    `(if-let ~bindings ~else ~then ~@oldform)))
 
+(defn parse-int [s]
+  (try (Integer. s)
+       (catch Exception _
+         nil)))
+
 (defn verify-channel [bot chat-id channel-id user-id]
   (let [msg (tgapi/send-message bot chat-id "正在验证 Channel")
-        msg-id (:message_id msg)]
+        msg-id (:message_id msg)
+        channel-id (if (parse-int channel-id)
+                     (if (not (string/starts-with? channel-id "-100"))
+                       (str "-100" channel-id)
+                       channel-id)
+                     (if (not (string/starts-with? channel-id "@"))
+                       (str "@" channel-id)
+                       channel-id))]
     (if-not-let [channel-info (try (tgapi/get-chat bot channel-id)
                                    (catch Exception e ; Bad Request: chat not found
                                      (when (-> (ex-data e) :status (not= 400)) (throw e))))]
@@ -382,11 +394,6 @@
                  (take max-size result)
                  result)]
     (string/join " " result)))
-
-(defn parse-int [s]
-  (try (Integer. s)
-       (catch Exception _
-         nil)))
 
 (defn fetch-rss-updates [bot db]
   (future

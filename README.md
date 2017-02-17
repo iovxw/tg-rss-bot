@@ -22,7 +22,7 @@ cd tg-rss-bot
 lein uberjar
 ```
 
-编译好的文件在 `./target/uberjar/tg-rss-bot-0.5.8-standalone.jar`
+编译好的文件在 `./target/uberjar/tg-rss-bot-0.5.9-standalone.jar`
 
 ## 运行
 
@@ -30,7 +30,7 @@ lein uberjar
 - JRE or JDK >= 1.6
 
 ```
-java -jar tg-rss-bot-0.5.8-standalone.jar [bot-token]
+java -jar tg-rss-bot-0.5.9-standalone.jar [bot-token]
 ```
 
 `bot-token` 的申请请参照 <https://core.telegram.org/bots#creating-a-new-bot>
