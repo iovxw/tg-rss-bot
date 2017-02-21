@@ -62,7 +62,7 @@
               (recur begin (inc n) result))))))))
 
 (defn send-message [bot chat-id text & opts]
-  (if (<= (count text) 1024)
+  (if (<= (count text) 4096)
     (apply tgapi/send-message bot chat-id text opts)
     (let [messages (split-message text 1024)]
       (doseq [msg messages]
